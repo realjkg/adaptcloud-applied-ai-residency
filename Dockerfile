@@ -2,7 +2,7 @@ FROM node:22-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
-COPY tsconfig.json vitest.config.ts ./
+COPY tsconfig.json vitest.config.mjs ./
 COPY src ./src
 COPY scripts ./scripts
 COPY tests ./tests
