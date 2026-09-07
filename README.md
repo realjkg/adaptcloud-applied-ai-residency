@@ -46,6 +46,8 @@ docker build -t adaptcloud-applied-ai-residency:local .
 
 The reference profile contains no secrets and is not a production approval. See `docs/WELL_ARCHITECTED.md` for the six-pillar control map, scenario SLO overlays, platform-adapter contract, promotion gates, and residual obligations; use `docs/RUNBOOK.md` for shared incident, rollback, and restore procedures.
 
+AWS ECS Fargate and GCP Cloud Run application-layer foundations now live in `infra/`. Pull requests validate both roots; a manually approved GitHub workflow exchanges OIDC identity and produces a plan, but contains no apply step. Use `docs/CLOUD_LAB.md` for the OpenTelemetry and cross-cloud evidence exercise and `infra/README.md` for prerequisites and stop conditions.
+
 ## Development environments
 
 - **Claude Code:** governed by `CLAUDE.md`.

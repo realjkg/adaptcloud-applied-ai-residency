@@ -1,8 +1,10 @@
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
+import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { runAssessment } from "./agent/workflow.js";
 import { writeRequestEvent } from "./platform/observability.js";
 import { assessRuntimeReadiness, assertProductionReady, runtimeConfigFromEnvironment } from "./platform/runtime.js";
+import { shutdownTelemetry } from "./platform/telemetry.js";
 
 const runtime = runtimeConfigFromEnvironment();
 assertProductionReady(runtime);
@@ -14,19 +16,34 @@ const server = createServer(async (request, response) => {
   const startedAt = performance.now();
   const requestId = randomUUID();
   const route = new URL(request.url ?? "/", "http://service.local").pathname;
+  const span = route.startsWith("/health") ? undefined : trace.getTracer("adaptcloud-http").startSpan("http.request", {
+    attributes: {
+      "http.request.method": request.method ?? "UNKNOWN",
+      "url.path": route
+    }
+  });
   let outcome: "success" | "rejected" | "error" = "success";
   response.setHeader("x-request-id", requestId);
   response.setHeader("content-type", "application/json; charset=utf-8");
   response.setHeader("cache-control", "no-store");
   response.setHeader("x-content-type-options", "nosniff");
-  response.on("finish", () => writeRequestEvent({
-    requestId,
-    method: request.method ?? "UNKNOWN",
-    route,
-    status: response.statusCode,
-    durationMs: Math.round(performance.now() - startedAt),
-    outcome
-  }));
+  response.on("finish", () => {
+    writeRequestEvent({
+      requestId,
+      method: request.method ?? "UNKNOWN",
+      route,
+      status: response.statusCode,
+      durationMs: Math.round(performance.now() - startedAt),
+      outcome
+    });
+    span?.setAttributes({
+      "http.response.status_code": response.statusCode,
+      "adaptcloud.outcome": outcome,
+      "adaptcloud.request_id": requestId
+    });
+    span?.setStatus({ code: response.statusCode >= 500 ? SpanStatusCode.ERROR : SpanStatusCode.OK });
+    span?.end();
+  });
   if (request.method === "GET" && (route === "/health" || route === "/health/live")) {
     response.writeHead(200).end(JSON.stringify({ status: "ok" }));
     return;
@@ -79,7 +96,9 @@ server.requestTimeout = runtime.requestTimeoutMs;
 server.headersTimeout = Math.min(runtime.requestTimeoutMs, 60_000);
 
 function shutdown(signal: string): void {
-  server.close(() => process.exit(0));
+  server.close(() => {
+    void shutdownTelemetry().finally(() => process.exit(0));
+  });
   setTimeout(() => process.exit(1), runtime.requestTimeoutMs).unref();
   process.stdout.write(`${JSON.stringify({ type: "service.shutdown", signal })}\n`);
 }
