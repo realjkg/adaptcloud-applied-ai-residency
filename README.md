@@ -16,6 +16,7 @@ npm install
 npm run check
 npm test
 npm run eval
+npm run readiness
 npm run agent -- examples/client-intake.json
 ```
 
@@ -24,12 +25,24 @@ Start the API:
 ```bash
 npm run dev
 curl http://localhost:3000/health
+curl http://localhost:3000/health/ready
 curl -X POST http://localhost:3000/api/assess \
   -H 'content-type: application/json' \
   --data-binary @examples/client-intake.json
 ```
 
 The workflow defaults to local deterministic mode. To request a Claude recommendation, copy `.env.example` to `.env`, supply the model and pricing currently approved by Adapt Cloud, and place the API key in the environment or platform secret manager. The program does not load `.env` automatically and never requires a key for tests.
+
+## Dev-to-production path
+
+The same container and runtime contract move from local development to production. Development stays credential-free; production fails closed unless its gateway, managed-secret, immutable-audit, multi-zone, telemetry, cost, autoscaling, infrastructure-as-code, recovery, and rollback controls are declared.
+
+```bash
+npm run readiness:production-reference
+docker build -t adaptcloud-applied-ai-residency:local .
+```
+
+The reference profile contains no secrets and is not a production approval. See `docs/WELL_ARCHITECTED.md` for the six-pillar control map, scenario SLO overlays, platform-adapter contract, promotion gates, and residual obligations; use `docs/RUNBOOK.md` for shared incident, rollback, and restore procedures.
 
 ## Development environments
 
@@ -38,7 +51,7 @@ The workflow defaults to local deterministic mode. To request a Claude recommend
 - **Lovable:** builds only the presentation layer against the sample API; secrets remain server-side.
 - **Replit:** runs through `.replit`; use Replit Secrets for server-side configuration.
 
-See `docs/TOOLS.md`, `docs/RESIDENCY.md`, `docs/CLIENT_READINESS.md`, `SECURITY.md`, and `CONTRIBUTING.md` before beginning.
+See `docs/TOOLS.md`, `docs/RESIDENCY.md`, `docs/CLIENT_READINESS.md`, `docs/WELL_ARCHITECTED.md`, `SECURITY.md`, and `CONTRIBUTING.md` before beginning.
 
 ## First resident assignment
 
