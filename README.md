@@ -2,6 +2,8 @@
 
 A production-shaped learning repository for developers becoming client-ready applied AI engineers. It combines Claude architecture, agentic development, automated testing, AI Tokenomics, cloud operations, security governance, and evidence-backed delivery.
 
+The Vercel surface is intentionally a static engineering walkthrough. It does not deploy infrastructure, invoke Claude, export telemetry, or hold credentials. See `docs/VERCEL_WALKTHROUGH.md` for that boundary.
+
 The included sample agent turns a synthetic client intake into:
 
 - a deterministic token-cost estimate;
