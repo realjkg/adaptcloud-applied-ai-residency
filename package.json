@@ -10,13 +10,20 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
-    "dev": "npm run build && node dist/src/server.js",
+    "dev": "npm run build && node dist/src/bootstrap.js",
     "agent": "npm run build && node dist/src/index.js",
     "eval": "npm run build && node dist/scripts/run-evals.js",
     "readiness": "npm run build && node dist/scripts/check-readiness.js",
     "readiness:production-reference": "npm run build && node --env-file=config/production-reference.env dist/scripts/check-readiness.js",
     "test": "vitest run",
     "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.222.0",
+    "@opentelemetry/resources": "^2.11.0",
+    "@opentelemetry/sdk-node": "^0.222.0",
+    "@opentelemetry/semantic-conventions": "^1.43.0"
   },
   "devDependencies": {
     "@types/node": "^26.5.0",
