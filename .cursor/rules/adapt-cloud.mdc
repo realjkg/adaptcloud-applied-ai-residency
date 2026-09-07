@@ -13,3 +13,5 @@ alwaysApply: true
 - Record cost, latency, model, outcome, and control evidence without logging prompt bodies.
 - Do not claim production readiness until build, tests, evals, rollback, and security review pass.
 - Explain every change in terms of customer value, risk, cost, and operational ownership.
+- Preserve production startup fail-closed behavior and the well-architected readiness checks.
+- A scenario change must identify security, resilience, reliability, cost, sustainability, and automation effects.

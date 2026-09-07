@@ -156,7 +156,24 @@ REQUIRED ARCHITECTURE
    - `POST /api/v1/scenarios/insurance/assess`
 6. Add a CLI that selects the scenario explicitly. It must reject a fixture supplied to the wrong scenario.
 7. Keep tests and evaluations network-free. Claude failure, timeout, malformed output, or missing configuration must produce a safe deterministic result.
-8. Do not add a database, authentication provider, cloud deployment, or write-capable external connector merely to make the sample look more complete. Document those as production extensions unless the repository already provides them.
+8. Do not add a database, authentication provider, provider-specific deployment, or write-capable external connector merely to make the sample look more complete. Keep the cloud-neutral runtime and container deployable; document managed dependencies behind the platform adapter until a provider is explicitly selected.
+
+WELL-ARCHITECTED PRODUCTION PATH
+
+Build once and promote the same immutable, non-root container through development, staging, and production. Environment differences must be configuration and managed-service bindings, not scenario forks. Do not invent a cloud provider: preserve a cloud-neutral platform adapter contract until the owner selects AWS, Azure, or GCP, then implement exactly one reviewed infrastructure-as-code adapter.
+
+The shared platform must enforce:
+
+- Security: authenticated private ingress, least privilege, managed identity/secrets, tenant boundaries, egress allow-listing, data minimization, immutable metadata-only audit, dependency scanning, and no secret or narrative logging.
+- Resilience: multi-zone replicas, graceful termination, bounded timeouts/retries with jitter, load shedding, provider-failure fallback, restore drills, and no retry storms.
+- Reliability: separate live/ready checks, request correlation, OTLP telemetry, scenario SLOs and error budgets, canary or rolling health gates, and automatic rollback.
+- Cost optimization: per-scenario token/cost attribution, request/output caps, explicit monthly budgets, anomaly alerts, caching only where data policy permits, and deterministic routing before model inference.
+- Sustainability: right-sized and demand-based autoscaling, efficient model selection, bounded output, tokens/compute per successful outcome, and a documented region decision balancing carbon, latency, availability, and residency.
+- Operational efficiency: reviewed infrastructure and policy as code, immutable image digests, automated tests/evals/security/readiness gates, runbooks, ownership, drift detection, SBOM/provenance, and repeatable rollback.
+
+Use `src/platform/runtime.ts`, `config/production-reference.env`, and `docs/WELL_ARCHITECTED.md` as the minimum cross-scenario contract. Production must fail closed when a blocking readiness control is absent. A passing reference-profile check is not production authorization.
+
+Before implementing a scenario, record its provisional availability target, RTO, RPO, peak/concurrency assumption, data-retention/deletion rule, monthly model budget, degradation behavior, operational owner, and rollback trigger. Treat these as testable hypotheses until customer and owner approval.
 
 TOOL-SPECIFIC ONBOARDING
 
@@ -205,6 +222,7 @@ Phase 3 — Implement the shared kernel
 - Add the versioned envelope, explicit scenario dispatch, common cost calculation, bounded Claude adapter, safe fallback, and metadata-only evidence logging.
 - Keep model names and prices out of source code.
 - Reject unsupported scenarios, oversized inputs, malformed numbers, unknown data classifications, and ambiguous currency values.
+- Preserve request correlation, metadata-only telemetry, capacity shedding, graceful termination, bounded model retries/timeouts, budget findings, and fail-closed production readiness.
 
 Phase 4 — Implement each scenario separately
 
@@ -238,6 +256,19 @@ Also prove:
 - commercial estimates expose assumptions and cannot trigger an external action; and
 - every prohibited action has a negative test that would fail if its guard were removed or reversed.
 
+Also prove the production path:
+
+- development remains deterministic and credential-free;
+- unsafe production configuration refuses to start;
+- the production reference profile has no readiness blockers;
+- provider timeout, throttling, and 5xx responses fall back safely within the retry budget;
+- capacity limits shed load without accepting additional work;
+- liveness does not depend on external providers and readiness reflects deployment policy;
+- shutdown drains bounded in-flight work;
+- model budget breaches are deterministic findings;
+- logs contain request metadata but no bodies, prompts, transaction details, or claim narratives; and
+- each scenario has an SLO/error-budget test plan, restore exercise, load assumption, and rollback trigger.
+
 Phase 7 — Documentation and resident experience
 
 - Update the README with commands and sample output for all three scenarios.
@@ -245,6 +276,8 @@ Phase 7 — Documentation and resident experience
 - Extend the client-readiness rubric so a resident must pass one scenario deeply and explain the risk differences across all three.
 - Add a GitHub issue template for bounded resident assignments.
 - Do not use real customer, payment, policy, claim, identity, medical, or government data anywhere in the repository.
+- Update the six-pillar map and scenario service-level overlays whenever behavior or operating assumptions change.
+- Add a runbook covering provider degradation, capacity exhaustion, audit-delivery failure, budget breach, rollback, and restore.
 
 Phase 8 — Release gates
 
@@ -254,7 +287,10 @@ Run from a clean installation:
 - `npm run check`
 - `npm test`
 - `npm run eval`
+- `npm run readiness`
+- `npm run readiness:production-reference`
 - `npm run build`
+- `docker build -t adaptcloud-applied-ai-residency:test .`
 - one deterministic CLI execution for each scenario
 - one API smoke test for each scenario
 - `npm audit --omit=dev`
@@ -274,6 +310,8 @@ Declare `READY FOR OWNER REVIEW` only when:
 - deterministic mode works without credentials;
 - Claude-assisted mode remains subordinate to deterministic policy;
 - documentation and tool onboarding are complete;
+- the immutable container and production reference profile pass their gates;
+- every scenario has explicit SLO, recovery, retention, cost, sustainability, and operational ownership assumptions;
 - the final evidence identifies the exact tested commit; and
 - no critical or high-severity unresolved issue remains.
 

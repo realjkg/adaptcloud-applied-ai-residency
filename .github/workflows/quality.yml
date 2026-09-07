@@ -21,3 +21,7 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npm run eval
+      - run: npm run readiness:production-reference
+      - run: npm run build
+      - run: docker build -t adaptcloud-applied-ai-residency:${{ github.sha }} .
+      - run: npm audit --omit=dev

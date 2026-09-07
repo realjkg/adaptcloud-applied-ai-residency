@@ -1,0 +1,51 @@
+name: Resident assignment
+description: Define one bounded, evidence-backed residency change.
+title: "[Resident] "
+labels: ["resident-assignment"]
+body:
+  - type: dropdown
+    id: scenario
+    attributes:
+      label: Scenario
+      options:
+        - Shared platform
+        - Commercial operations
+        - Banking and payments
+        - Insurance claims
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: User outcome and acceptance evidence
+      description: State the bounded outcome and the test or evaluation that proves it.
+    validations:
+      required: true
+  - type: textarea
+    id: controls
+    attributes:
+      label: Deterministic controls and prohibited actions
+      description: Identify controls this change may affect; never delegate them to a model.
+    validations:
+      required: true
+  - type: textarea
+    id: pillars
+    attributes:
+      label: Six-pillar impact
+      description: Cover security, resilience, reliability, cost, sustainability, and operational efficiency.
+    validations:
+      required: true
+  - type: textarea
+    id: operations
+    attributes:
+      label: SLO, recovery, retention, owner, and rollback
+      description: Record assumptions and the rollback trigger.
+    validations:
+      required: true
+  - type: checkboxes
+    id: data
+    attributes:
+      label: Data boundary
+      options:
+        - label: I will use synthetic data only and will not include secrets or customer information.
+          required: true
