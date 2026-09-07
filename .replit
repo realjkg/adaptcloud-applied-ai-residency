@@ -1,0 +1,10 @@
+entrypoint = "src/server.ts"
+run = "npm run dev"
+
+[deployment]
+run = ["sh", "-c", "npm run build && node dist/src/server.js"]
+deploymentTarget = "cloudrun"
+
+[[ports]]
+localPort = 3000
+externalPort = 80

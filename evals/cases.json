@@ -1,0 +1,26 @@
+[
+  {
+    "name": "safe bounded pilot",
+    "input": "examples/client-intake.json",
+    "expectedCriticalFindings": 0
+  },
+  {
+    "name": "blocks missing approval and isolation",
+    "input": {
+      "useCase": "Send account decisions directly to customers without human review",
+      "industry": "financial services",
+      "dataClasses": ["regulated"],
+      "monthlyRequests": 1000,
+      "averageInputTokens": 1000,
+      "averageOutputTokens": 300,
+      "controls": {
+        "humanApproval": false,
+        "piiScanning": false,
+        "auditLogging": true,
+        "tenantIsolation": false,
+        "managedSecrets": true
+      }
+    },
+    "expectedCriticalFindings": 2
+  }
+]

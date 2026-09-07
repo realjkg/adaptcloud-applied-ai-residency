@@ -1,0 +1,15 @@
+{
+  "useCase": "Summarize maintenance reports and propose follow-up work for human approval",
+  "industry": "industrial services",
+  "dataClasses": ["internal", "possible-pii"],
+  "monthlyRequests": 12000,
+  "averageInputTokens": 2400,
+  "averageOutputTokens": 650,
+  "controls": {
+    "humanApproval": true,
+    "piiScanning": true,
+    "auditLogging": true,
+    "tenantIsolation": true,
+    "managedSecrets": true
+  }
+}

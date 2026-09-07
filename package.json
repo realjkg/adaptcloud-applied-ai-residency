@@ -1,0 +1,24 @@
+{
+  "name": "adaptcloud-applied-ai-residency",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Production-shaped Claude agent workflow for Adapt Cloud resident engineers.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "dev": "npm run build && node dist/src/server.js",
+    "agent": "npm run build && node dist/src/index.js",
+    "eval": "npm run build && node dist/scripts/run-evals.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.0",
+    "typescript": "^7.0.2",
+    "vitest": "4.1.11"
+  }
+}
