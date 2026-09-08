@@ -15,12 +15,15 @@ describe("student handoff acceptance", () => {
 
   it("tests the hardened runtime and its public HTTP boundaries", () => {
     const script = read("scripts/test-container-runtime.sh");
+    const dockerfile = read("Dockerfile");
     expect(script).toContain("--read-only");
     expect(script).toContain("--cap-drop ALL");
     expect(script).toContain("no-new-privileges");
     expect(script).toContain('test "$status" = "413"');
     expect(script).toContain('test "$status" = "401"');
     expect(script).toContain('"type":"service.shutdown"');
+    expect(dockerfile).toContain("rm -rf /usr/local/lib/node_modules");
+    expect(dockerfile).toContain("USER node");
   });
 
   it("exports real telemetry while checking sensitive data exclusion", () => {
