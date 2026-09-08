@@ -46,6 +46,9 @@
 - Restore drill, RTO and RPO:
 - Model and cloud cost estimate:
 - Sanitized trace reference:
+- Terraform destroy-plan reference:
+- Empty-state and residual-inventory references:
+- Billing-console cleanup verification:
 - Runbook exercise:
 - Go/no-go recommendation and rationale:
 
