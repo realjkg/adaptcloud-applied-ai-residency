@@ -4,6 +4,15 @@ The lab builds experience relevant to enterprise application and platform roles:
 
 ## Local OpenTelemetry exercise
 
+First run the complete credential-free matrix. It executes the commercial, payments, and insurance policy engines against both cloud adapter contracts. The ordinary command disables Claude even if a shell happens to contain a key:
+
+```bash
+npm run test:unit
+npm run lab:simulate
+```
+
+The six application simulations pair with `terraform test` provider mocks in `infra/aws/foundation.tftest.hcl` and `infra/gcp/foundation.tftest.hcl`. Mock plans evaluate the real Terraform configuration without authenticating, creating resources, or estimating actual cloud charges.
+
 Start the collector, then run the application with OTLP export enabled:
 
 ```bash
@@ -30,6 +39,20 @@ Choose one cloud first. Configure only a read/plan identity through GitHub OIDC,
 - how the environment is destroyed or handed back before costs accumulate.
 
 Repeat in the second cloud and compare primitives without changing the application artifact.
+
+## Optional live Claude exercise
+
+The default matrix is deterministic and cannot spend model tokens. To test the real Claude adapter, use a student-owned key and select one scenario and cloud first:
+
+```bash
+ANTHROPIC_API_KEY=... \
+ANTHROPIC_MODEL=... \
+INPUT_COST_PER_MTOK=... \
+OUTPUT_COST_PER_MTOK=... \
+npm run lab:simulate:claude -- --scenario=commercial --cloud=aws
+```
+
+The adapter sends only a synthetic, minimized architecture summary. The insurance narrative, payment events, maintenance observations, credentials, and source identifiers are not included in the model request. Review the configured model and current pricing before running the live option.
 
 ## Scenario depth
 
