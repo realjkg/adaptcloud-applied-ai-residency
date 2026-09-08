@@ -1,0 +1,16 @@
+{
+  "scenario": "insurance",
+  "humanApproval": true,
+  "claimId": "SYNTH-CLAIM-300",
+  "lossType": "property-water",
+  "narrative": "Synthetic exercise narrative; excluded from model prompts, evidence metadata, and logs.",
+  "requiredDocuments": ["policy-summary", "damage-photo"],
+  "documents": [
+    { "type": "policy-summary", "sourceId": "doc-policy-1" },
+    { "type": "damage-photo", "sourceId": "doc-photo-1" }
+  ],
+  "facts": [
+    { "name": "reported-loss-type", "value": "property-water", "sourceId": "doc-policy-1" },
+    { "name": "photo-received", "value": "true", "sourceId": "doc-photo-1" }
+  ]
+}

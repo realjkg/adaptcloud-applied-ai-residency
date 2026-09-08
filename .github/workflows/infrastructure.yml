@@ -69,11 +69,13 @@ jobs:
           terraform_version: 1.16.0
           terraform_wrapper: false
       - name: Check formatting
-        run: terraform -chdir=infra/${{ matrix.target }} fmt -check -recursive
+        run: terraform -chdir=infra/${{ matrix.target }} fmt -check -diff -recursive
       - name: Initialize without a state backend
         run: terraform -chdir=infra/${{ matrix.target }} init -backend=false -input=false
       - name: Validate configuration
         run: terraform -chdir=infra/${{ matrix.target }} validate
+      - name: Run credential-free Terraform plan simulations
+        run: terraform -chdir=infra/${{ matrix.target }} test
 
   workflow-guard:
     if: github.event_name == 'workflow_dispatch'

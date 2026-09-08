@@ -1,0 +1,13 @@
+{
+  "scenario": "commercial",
+  "humanApproval": true,
+  "assetId": "SYNTH-ASSET-100",
+  "maintenanceObservations": ["Synthetic vibration trend above exercise baseline", "Inspection is due"],
+  "downtimeHours": 4,
+  "hourlyDowntimeCostMinor": 25000,
+  "laborHours": 3,
+  "laborRateMinor": 8500,
+  "materialCostMinor": 12000,
+  "currency": "USD",
+  "requestedActions": ["draft-work-order"]
+}
