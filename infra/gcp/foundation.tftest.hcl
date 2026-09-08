@@ -4,17 +4,17 @@ run "sandbox_plan" {
   command = plan
 
   variables {
-    project_id                      = "personal-sandbox-project"
-    region                          = "us-central1"
-    environment                     = "sandbox"
-    image_digest                    = "us-central1-docker.pkg.dev/personal-sandbox-project/apps/applied-ai-residency@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    runtime_service_account         = "residency-runtime@personal-sandbox-project.iam.gserviceaccount.com"
-    invoker_member                  = "user:engineer@example.com"
-    otel_collector_image            = "us-docker.pkg.dev/cloud-ops-agents-artifacts/google-cloud-opentelemetry-collector/otelcol-google@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    otel_config_secret              = "residency-otel-config"
-    min_instances                   = 1
-    max_instances                   = 2
-    monthly_model_budget_usd        = 100
+    project_id               = "personal-sandbox-project"
+    region                   = "us-central1"
+    environment              = "sandbox"
+    image_digest             = "us-central1-docker.pkg.dev/personal-sandbox-project/apps/applied-ai-residency@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    runtime_service_account  = "residency-runtime@personal-sandbox-project.iam.gserviceaccount.com"
+    invoker_member           = "user:engineer@example.com"
+    otel_collector_image     = "us-docker.pkg.dev/cloud-ops-agents-artifacts/google-cloud-opentelemetry-collector/otelcol-google@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    otel_config_secret       = "residency-otel-config"
+    min_instances            = 1
+    max_instances            = 2
+    monthly_model_budget_usd = 100
   }
 
   assert {
