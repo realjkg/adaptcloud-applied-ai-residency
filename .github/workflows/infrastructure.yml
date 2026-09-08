@@ -5,28 +5,58 @@ on:
     paths:
       - "infra/**"
       - "observability/**"
+      - "config/**"
+      - "src/platform/runtime.ts"
+      - "tests/infrastructure.test.ts"
       - ".github/workflows/infrastructure.yml"
   workflow_dispatch:
     inputs:
       target:
-        description: Cloud foundation to plan
+        description: Student-owned cloud target
         required: true
         type: choice
         options: [aws, gcp]
+      environment:
+        description: Environment contract
+        required: true
+        type: choice
+        options: [sandbox, staging, production]
+      operation:
+        description: Plan everywhere; apply or destroy only a student sandbox
+        required: true
+        type: choice
+        options: [plan, apply, destroy]
       image_digest:
         description: Immutable image reference (registry/repository@sha256:digest)
         required: true
+        type: string
+      confirmation:
+        description: Use APPLY MY SANDBOX or DESTROY MY SANDBOX for sandbox mutation
+        required: false
         type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: infra-${{ github.workflow }}-${{ github.ref }}-${{ inputs.target || 'validate' }}
+  group: infra-${{ github.workflow }}-${{ github.ref }}-${{ inputs.target || 'validate' }}-${{ inputs.environment || 'none' }}
   cancel-in-progress: false
 
 jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run test:unit
+
   validate:
+    needs: unit-tests
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -45,11 +75,38 @@ jobs:
       - name: Validate configuration
         run: terraform -chdir=infra/${{ matrix.target }} validate
 
-  plan-aws:
-    if: github.event_name == 'workflow_dispatch' && inputs.target == 'aws'
+  workflow-guard:
+    if: github.event_name == 'workflow_dispatch'
     needs: validate
     runs-on: ubuntu-latest
-    environment: infrastructure-plan
+    env:
+      TARGET_ENVIRONMENT: ${{ inputs.environment }}
+      OPERATION: ${{ inputs.operation }}
+      CONFIRMATION: ${{ inputs.confirmation }}
+    steps:
+      - name: Enforce the student-owned mutation boundary
+        run: |
+          if [ "$OPERATION" = "plan" ]; then
+            exit 0
+          fi
+          if [ "$TARGET_ENVIRONMENT" != "sandbox" ]; then
+            echo "Only sandbox can be mutated by this repository."
+            exit 1
+          fi
+          if [ "$OPERATION" = "apply" ] && [ "$CONFIRMATION" != "APPLY MY SANDBOX" ]; then
+            echo "Sandbox apply confirmation did not match."
+            exit 1
+          fi
+          if [ "$OPERATION" = "destroy" ] && [ "$CONFIRMATION" != "DESTROY MY SANDBOX" ]; then
+            echo "Sandbox destroy confirmation did not match."
+            exit 1
+          fi
+
+  aws:
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'aws'
+    needs: workflow-guard
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
     permissions:
       contents: read
       id-token: write
@@ -59,12 +116,12 @@ jobs:
         with:
           terraform_version: 1.16.0
           terraform_wrapper: false
-      - name: Exchange GitHub OIDC token for an AWS session
+      - name: Exchange GitHub OIDC token for a student-owned AWS session
         uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: ${{ vars.AWS_TERRAFORM_PLAN_ROLE_ARN }}
+          role-to-assume: ${{ inputs.operation == 'plan' && vars.AWS_TERRAFORM_PLAN_ROLE_ARN || vars.AWS_TERRAFORM_SANDBOX_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
-          role-session-name: adaptcloud-plan-${{ github.run_id }}
+          role-session-name: residency-${{ inputs.operation }}-${{ github.run_id }}
       - name: Initialize
         run: |
           terraform -chdir=infra/aws init \
@@ -74,33 +131,56 @@ jobs:
             -backend-config="region=${{ vars.AWS_REGION }}" \
             -backend-config="encrypt=true" \
             -backend-config="use_lockfile=true"
-      - name: Create reviewed plan only
+      - name: Create reviewed apply plan
+        if: inputs.operation != 'destroy'
         env:
           TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+          TF_VAR_environment: ${{ inputs.environment }}
           TF_VAR_image_digest: ${{ inputs.image_digest }}
+          TF_VAR_otel_collector_image: ${{ vars.AWS_OTEL_COLLECTOR_IMAGE }}
           AWS_PRIVATE_SUBNET_IDS_JSON: ${{ vars.AWS_PRIVATE_SUBNET_IDS_JSON }}
           AWS_SERVICE_SECURITY_GROUP_IDS_JSON: ${{ vars.AWS_SERVICE_SECURITY_GROUP_IDS_JSON }}
-          TF_VAR_otel_collector_image: ${{ vars.AWS_OTEL_COLLECTOR_IMAGE }}
         run: |
           terraform -chdir=infra/aws plan \
             -input=false \
             -lock-timeout=5m \
-            -var="private_subnet_ids=${AWS_PRIVATE_SUBNET_IDS_JSON}" \
-            -var="service_security_group_ids=${AWS_SERVICE_SECURITY_GROUP_IDS_JSON}" \
+            -var="private_subnet_ids=$AWS_PRIVATE_SUBNET_IDS_JSON" \
+            -var="service_security_group_ids=$AWS_SERVICE_SECURITY_GROUP_IDS_JSON" \
+            -out=tfplan
+      - name: Create reviewed destroy plan
+        if: inputs.operation == 'destroy'
+        env:
+          TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+          TF_VAR_environment: ${{ inputs.environment }}
+          TF_VAR_image_digest: ${{ inputs.image_digest }}
+          TF_VAR_otel_collector_image: ${{ vars.AWS_OTEL_COLLECTOR_IMAGE }}
+          AWS_PRIVATE_SUBNET_IDS_JSON: ${{ vars.AWS_PRIVATE_SUBNET_IDS_JSON }}
+          AWS_SERVICE_SECURITY_GROUP_IDS_JSON: ${{ vars.AWS_SERVICE_SECURITY_GROUP_IDS_JSON }}
+        run: |
+          terraform -chdir=infra/aws plan \
+            -destroy \
+            -input=false \
+            -lock-timeout=5m \
+            -var="private_subnet_ids=$AWS_PRIVATE_SUBNET_IDS_JSON" \
+            -var="service_security_group_ids=$AWS_SERVICE_SECURITY_GROUP_IDS_JSON" \
             -out=tfplan
       - name: Render human-readable plan
         run: terraform -chdir=infra/aws show -no-color tfplan > infra/aws/plan.txt
+      - name: Apply the reviewed sandbox plan
+        if: inputs.operation != 'plan'
+        run: terraform -chdir=infra/aws apply -input=false -auto-approve tfplan
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: aws-terraform-plan-${{ github.run_id }}
+          name: aws-${{ inputs.environment }}-${{ inputs.operation }}-${{ github.run_id }}
           path: infra/aws/plan.txt
           retention-days: 7
 
-  plan-gcp:
+  gcp:
     if: github.event_name == 'workflow_dispatch' && inputs.target == 'gcp'
-    needs: validate
+    needs: workflow-guard
     runs-on: ubuntu-latest
-    environment: infrastructure-plan
+    environment: ${{ inputs.environment }}
     permissions:
       contents: read
       id-token: write
@@ -110,31 +190,49 @@ jobs:
         with:
           terraform_version: 1.16.0
           terraform_wrapper: false
-      - name: Exchange GitHub OIDC token for a GCP session
+      - name: Exchange GitHub OIDC token for a student-owned GCP session
         uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_TERRAFORM_PLAN_SERVICE_ACCOUNT }}
+          service_account: ${{ inputs.operation == 'plan' && vars.GCP_TERRAFORM_PLAN_SERVICE_ACCOUNT || vars.GCP_TERRAFORM_SANDBOX_SERVICE_ACCOUNT }}
       - name: Initialize
         run: |
           terraform -chdir=infra/gcp init \
             -input=false \
             -backend-config="bucket=${{ vars.GCP_TF_STATE_BUCKET }}" \
             -backend-config="prefix=${{ vars.GCP_TF_STATE_PREFIX }}"
-      - name: Create reviewed plan only
+      - name: Create reviewed apply plan
+        if: inputs.operation != 'destroy'
         env:
           TF_VAR_project_id: ${{ vars.GCP_PROJECT_ID }}
           TF_VAR_region: ${{ vars.GCP_REGION }}
+          TF_VAR_environment: ${{ inputs.environment }}
           TF_VAR_runtime_service_account: ${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT }}
           TF_VAR_invoker_member: ${{ vars.GCP_INVOKER_MEMBER }}
           TF_VAR_image_digest: ${{ inputs.image_digest }}
           TF_VAR_otel_collector_image: ${{ vars.GCP_OTEL_COLLECTOR_IMAGE }}
           TF_VAR_otel_config_secret: ${{ vars.GCP_OTEL_CONFIG_SECRET }}
         run: terraform -chdir=infra/gcp plan -input=false -lock-timeout=5m -out=tfplan
+      - name: Create reviewed destroy plan
+        if: inputs.operation == 'destroy'
+        env:
+          TF_VAR_project_id: ${{ vars.GCP_PROJECT_ID }}
+          TF_VAR_region: ${{ vars.GCP_REGION }}
+          TF_VAR_environment: ${{ inputs.environment }}
+          TF_VAR_runtime_service_account: ${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT }}
+          TF_VAR_invoker_member: ${{ vars.GCP_INVOKER_MEMBER }}
+          TF_VAR_image_digest: ${{ inputs.image_digest }}
+          TF_VAR_otel_collector_image: ${{ vars.GCP_OTEL_COLLECTOR_IMAGE }}
+          TF_VAR_otel_config_secret: ${{ vars.GCP_OTEL_CONFIG_SECRET }}
+        run: terraform -chdir=infra/gcp plan -destroy -input=false -lock-timeout=5m -out=tfplan
       - name: Render human-readable plan
         run: terraform -chdir=infra/gcp show -no-color tfplan > infra/gcp/plan.txt
+      - name: Apply the reviewed sandbox plan
+        if: inputs.operation != 'plan'
+        run: terraform -chdir=infra/gcp apply -input=false -auto-approve tfplan
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: gcp-terraform-plan-${{ github.run_id }}
+          name: gcp-${{ inputs.environment }}-${{ inputs.operation }}-${{ github.run_id }}
           path: infra/gcp/plan.txt
           retention-days: 7
