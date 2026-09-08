@@ -64,7 +64,7 @@ npm audit --omit=dev
 docker build -t adaptcloud-applied-ai-residency:local .
 ```
 
-The concrete AWS/GCP application adapters are in `infra/`. Their GitHub workflow is intentionally plan-only: production mutation belongs to a separate organization-controlled system with environment approval, remote state, policy-as-code, and segregation of duties. `docs/adr/0001-cloud-foundation-decision.md` is the evidence record for either target.
+The concrete AWS/GCP application adapters are in `infra/`. Their GitHub workflow may mutate only a student-owned sandbox after tests and explicit confirmation. Staging and production are intentionally plan-only: their mutation belongs to a separate organization-controlled system with environment approval, remote state, policy-as-code, and segregation of duties. `docs/adr/0001-cloud-foundation-decision.md` is the evidence record for either target.
 
 For an actual target environment, run `npm run readiness` with its non-secret deployment variables before rollout. Production startup repeats the check and fails closed if any blocker remains. A green reference profile proves only that the configuration contract is internally consistent; owner review, threat modeling, load tests, recovery tests, data governance, and customer acceptance are still required.
 

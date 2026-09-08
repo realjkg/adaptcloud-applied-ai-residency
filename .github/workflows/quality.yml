@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  verify:
+  unit-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -19,9 +19,37 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
-      - run: npm test
+      - run: npm run test:unit
+
+  environment-contracts:
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [development, sandbox, staging, production]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Validate ${{ matrix.environment }} readiness contract
+        run: node --env-file=config/${{ matrix.environment }}-reference.env dist/scripts/check-readiness.js
+
+  verify:
+    needs: [unit-tests, environment-contracts]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
       - run: npm run eval
-      - run: npm run readiness:production-reference
       - run: npm run build
       - run: docker build -t adaptcloud-applied-ai-residency:${{ github.sha }} .
       - run: npm audit --omit=dev

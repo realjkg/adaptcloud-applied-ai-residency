@@ -1,4 +1,4 @@
-export type AppEnvironment = "development" | "test" | "staging" | "production";
+export type AppEnvironment = "development" | "test" | "sandbox" | "staging" | "production";
 export type AuthMode = "none" | "gateway";
 export type SecretSource = "local-environment" | "managed";
 export type AuditSink = "stdout" | "managed-immutable";
@@ -42,7 +42,7 @@ export interface ReadinessFinding {
   message: string;
 }
 
-const environments = new Set<AppEnvironment>(["development", "test", "staging", "production"]);
+const environments = new Set<AppEnvironment>(["development", "test", "sandbox", "staging", "production"]);
 
 function enumValue<T extends string>(value: string | undefined, fallback: T, values: readonly T[], name: string): T {
   const resolved = value ?? fallback;

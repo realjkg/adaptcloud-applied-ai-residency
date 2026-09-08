@@ -16,8 +16,12 @@
     "agent": "npm run build && node dist/src/index.js",
     "eval": "npm run build && node dist/scripts/run-evals.js",
     "readiness": "npm run build && node dist/scripts/check-readiness.js",
+    "readiness:development-reference": "npm run build && node --env-file=config/development-reference.env dist/scripts/check-readiness.js",
+    "readiness:sandbox-reference": "npm run build && node --env-file=config/sandbox-reference.env dist/scripts/check-readiness.js",
+    "readiness:staging-reference": "npm run build && node --env-file=config/staging-reference.env dist/scripts/check-readiness.js",
     "readiness:production-reference": "npm run build && node --env-file=config/production-reference.env dist/scripts/check-readiness.js",
-    "test": "vitest run",
+    "test": "npm run test:unit",
+    "test:unit": "vitest run",
     "test:watch": "vitest",
     "smoke:deployment": "node scripts/check-static-deployment.mjs"
   },
