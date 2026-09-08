@@ -22,7 +22,7 @@ on:
         description: Environment contract
         required: true
         type: choice
-        options: [sandbox, staging, production]
+        options: [sandbox, qa, staging, production]
       operation:
         description: Plan everywhere; apply or destroy only a student sandbox
         required: true
