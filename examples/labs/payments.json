@@ -1,0 +1,11 @@
+{
+  "scenario": "payments",
+  "humanApproval": true,
+  "transactionId": "SYNTH-TXN-200",
+  "currency": "USD",
+  "events": [
+    { "type": "authorization", "amountMinor": 12500, "currency": "USD", "idempotencyKey": "idem-auth-200", "sourceId": "evt-1" },
+    { "type": "capture", "amountMinor": 12500, "currency": "USD", "idempotencyKey": "idem-capture-200", "sourceId": "evt-2" },
+    { "type": "settlement", "amountMinor": 12500, "currency": "USD", "idempotencyKey": "idem-settle-200", "sourceId": "evt-3" }
+  ]
+}
