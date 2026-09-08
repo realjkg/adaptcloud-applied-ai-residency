@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { evaluateInfrastructureGuard } from "../scripts/guard-infrastructure.mjs";
 
 describe("student-owned infrastructure mutation guard", () => {
-  it.each(["sandbox", "staging", "production"])("allows a reviewed %s plan", (environment) => {
+  it.each(["sandbox", "qa", "staging", "production"])("allows a reviewed %s plan", (environment) => {
     expect(evaluateInfrastructureGuard(environment, "plan").allowed).toBe(true);
   });
 
@@ -13,7 +13,7 @@ describe("student-owned infrastructure mutation guard", () => {
     expect(evaluateInfrastructureGuard("sandbox", operation, confirmation).allowed).toBe(true);
   });
 
-  it.each(["staging", "production"])("rejects every %s mutation", (environment) => {
+  it.each(["qa", "staging", "production"])("rejects every %s mutation", (environment) => {
     expect(evaluateInfrastructureGuard(environment, "apply", "APPLY MY SANDBOX").allowed).toBe(false);
     expect(evaluateInfrastructureGuard(environment, "destroy", "DESTROY MY SANDBOX").allowed).toBe(false);
   });

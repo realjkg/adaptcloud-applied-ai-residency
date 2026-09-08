@@ -10,6 +10,7 @@ on:
       - "tests/infrastructure.test.ts"
       - "tests/infrastructure-guard.test.ts"
       - "scripts/guard-infrastructure.mjs"
+      - "scripts/verify-sandbox-cleanup.sh"
       - ".github/workflows/infrastructure.yml"
   workflow_dispatch:
     inputs:
@@ -22,7 +23,7 @@ on:
         description: Environment contract
         required: true
         type: choice
-        options: [sandbox, staging, production]
+        options: [sandbox, qa, staging, production]
       operation:
         description: Plan everywhere; apply or destroy only a student sandbox
         required: true
@@ -162,11 +163,27 @@ jobs:
       - name: Apply the reviewed sandbox plan
         if: inputs.operation != 'plan'
         run: terraform -chdir=infra/aws apply -input=false -auto-approve tfplan
+      - name: Prove Terraform state is empty after destroy
+        if: inputs.operation == 'destroy'
+        run: |
+          terraform -chdir=infra/aws state list > infra/aws/remaining-state.txt
+          test ! -s infra/aws/remaining-state.txt
+      - name: Prove no tagged AWS sandbox resources remain
+        if: inputs.operation == 'destroy'
+        env:
+          CLOUD_TARGET: aws
+          EXPECTED_CLOUD_SCOPE: ${{ vars.AWS_ACCOUNT_ID }}
+          APPLICATION_NAME: ${{ vars.APPLICATION_NAME || 'applied-ai-residency' }}
+          CLEANUP_REPORT_PATH: infra/aws/cleanup-residuals.json
+        run: bash scripts/verify-sandbox-cleanup.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: aws-${{ inputs.environment }}-${{ inputs.operation }}-${{ github.run_id }}
-          path: infra/aws/plan.txt
+          path: |
+            infra/aws/plan.txt
+            infra/aws/remaining-state.txt
+            infra/aws/cleanup-residuals.json
           retention-days: 7
 
   gcp:
@@ -188,6 +205,7 @@ jobs:
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ inputs.operation == 'plan' && vars.GCP_TERRAFORM_PLAN_SERVICE_ACCOUNT || vars.GCP_TERRAFORM_SANDBOX_SERVICE_ACCOUNT }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
       - name: Initialize
         run: |
           terraform -chdir=infra/gcp init \
@@ -223,9 +241,25 @@ jobs:
       - name: Apply the reviewed sandbox plan
         if: inputs.operation != 'plan'
         run: terraform -chdir=infra/gcp apply -input=false -auto-approve tfplan
+      - name: Prove Terraform state is empty after destroy
+        if: inputs.operation == 'destroy'
+        run: |
+          terraform -chdir=infra/gcp state list > infra/gcp/remaining-state.txt
+          test ! -s infra/gcp/remaining-state.txt
+      - name: Prove no labeled GCP sandbox resources remain
+        if: inputs.operation == 'destroy'
+        env:
+          CLOUD_TARGET: gcp
+          EXPECTED_CLOUD_SCOPE: ${{ vars.GCP_PROJECT_ID }}
+          APPLICATION_NAME: ${{ vars.APPLICATION_NAME || 'applied-ai-residency' }}
+          CLEANUP_REPORT_PATH: infra/gcp/cleanup-residuals.json
+        run: bash scripts/verify-sandbox-cleanup.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: gcp-${{ inputs.environment }}-${{ inputs.operation }}-${{ github.run_id }}
-          path: infra/gcp/plan.txt
+          path: |
+            infra/gcp/plan.txt
+            infra/gcp/remaining-state.txt
+            infra/gcp/cleanup-residuals.json
           retention-days: 7

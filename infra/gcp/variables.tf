@@ -40,8 +40,8 @@ variable "environment" {
   type    = string
   default = "sandbox"
   validation {
-    condition     = contains(["sandbox", "staging", "production"], var.environment)
-    error_message = "environment must be sandbox, staging, or production."
+    condition     = contains(["sandbox", "qa", "staging", "production"], var.environment)
+    error_message = "environment must be sandbox, qa, staging, or production."
   }
 }
 
@@ -50,7 +50,7 @@ variable "min_instances" {
   default = 1
   validation {
     condition     = var.min_instances >= (var.environment == "sandbox" ? 1 : 2)
-    error_message = "Sandbox needs at least one instance; staging and production need at least two."
+    error_message = "Sandbox needs at least one instance; QA, staging, and production need at least two."
   }
 }
 

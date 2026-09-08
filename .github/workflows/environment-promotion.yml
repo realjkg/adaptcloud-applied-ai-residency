@@ -1,0 +1,55 @@
+name: Environment promotion lab
+
+on:
+  pull_request:
+    paths:
+      - "config/**"
+      - "examples/promotion-evidence.simulated.json"
+      - "src/platform/promotion.ts"
+      - "src/platform/runtime.ts"
+      - "scripts/run-promotion-simulation.ts"
+      - "tests/promotion*.test.ts"
+      - "docs/ENVIRONMENT_PROMOTION_LAB.md"
+      - ".github/workflows/environment-promotion.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate-ordered-promotion:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Prove source and scenario gates first
+        run: |
+          npm run check
+          npm run test:unit
+          npm run eval
+          npm run lab:simulate
+      - run: npm run build
+      - name: Evaluate each environment in promotion order
+        env:
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          ARTIFACT_DIGEST: sha256:${{ hashFiles('Dockerfile', 'package-lock.json', 'src/**', 'scripts/**') }}
+        run: |
+          mkdir -p promotion-evidence
+          for environment in development sandbox qa staging production; do
+            node dist/scripts/run-promotion-simulation.js \
+              --environment="$environment" \
+              --commit-sha="$COMMIT_SHA" \
+              --artifact-digest="$ARTIFACT_DIGEST" \
+              > "promotion-evidence/$environment.json"
+          done
+      - name: Preserve the simulated review manifests
+        uses: actions/upload-artifact@v4
+        with:
+          name: environment-promotion-simulation-${{ github.run_id }}
+          path: promotion-evidence/*.json
+          retention-days: 14

@@ -5,12 +5,11 @@ This repository uses one immutable application artifact from development through
 ## Promotion path
 
 ```mermaid
-flowchart LR
-    A["Local deterministic mode"] --> B["Pull-request gates"]
-    B --> C["Immutable container"]
-    C --> D["Staging with managed services"]
-    D --> E["Canary plus SLO gates"]
-    E --> F["Production or auto-rollback"]
+flowchart TD
+    A["Development contract"] --> B["Student sandbox"]
+    B --> C["QA failure testing"]
+    C --> D["Staging operations"]
+    D --> E["Production review"]
 ```
 
 The service reads the same environment contract everywhere. `src/platform/runtime.ts` validates bounds and refuses to start in `production` when required controls are absent. `config/production-reference.env` contains only non-secret reference settings. Credentials must be injected at runtime from a managed secret store or workload identity.
@@ -22,7 +21,7 @@ The service reads the same environment contract everywhere. `src/platform/runtim
 | Security | No auth, local environment, synthetic data | Trusted gateway, managed secrets, immutable audit sink, private service ingress, least-privilege workload identity | readiness findings, access-policy review, audit delivery test |
 | Resilience | One local process and deterministic fallback | Two or more replicas across zones, bounded retries and timeouts, restore drill, dependency circuit breaking at the platform edge | failure-injection result, restore timestamp, recovery evidence |
 | Reliability | Console events and health route | Separate live/ready checks, OTLP export, SLO alerts, canary or rolling release, automatic rollback | dashboard link, alert test, deployment record |
-| Cost optimization | Token estimate with model disabled by default | Explicit model budget, request and output caps, rate limit, per-scenario cost attribution, budget alerts | cost evaluation, budget configuration, monthly variance |
+| Cost optimization | Token estimate with model disabled by default | Explicit model budget, request and output caps, rate limit, per-scenario cost attribution, budget alerts, and verified sandbox teardown | cost evaluation, budget configuration, cleanup receipt, monthly variance |
 | Sustainability | Small deterministic process | Demand-based autoscaling, efficient model routing, bounded outputs, region choice balancing carbon, latency, and residency | utilization trend, region decision record, tokens per successful outcome |
 | Operational efficiency | Local scripts | Infrastructure as code, immutable image, policy gates, automated smoke/evaluation checks, runbooks, ownership and rollback | CI run, image digest, change record, runbook exercise |
 
@@ -64,7 +63,7 @@ npm audit --omit=dev
 docker build -t adaptcloud-applied-ai-residency:local .
 ```
 
-The concrete AWS/GCP application adapters are in `infra/`. Their GitHub workflow may mutate only a student-owned sandbox after tests and explicit confirmation. Staging and production are intentionally plan-only: their mutation belongs to a separate organization-controlled system with environment approval, remote state, policy-as-code, and segregation of duties. `docs/adr/0001-cloud-foundation-decision.md` is the evidence record for either target.
+The concrete AWS/GCP application adapters are in `infra/`. Their GitHub workflow may mutate only a student-owned sandbox after tests and explicit confirmation. QA, staging and production are intentionally plan-only: their mutation belongs to a separate organization-controlled system with environment approval, remote state, policy-as-code, and segregation of duties. `docs/adr/0001-cloud-foundation-decision.md` is the evidence record for either target. `docs/ENVIRONMENT_PROMOTION_LAB.md` defines the cumulative evidence exercise.
 
 For an actual target environment, run `npm run readiness` with its non-secret deployment variables before rollout. Production startup repeats the check and fails closed if any blocker remains. A green reference profile proves only that the configuration contract is internally consistent; owner review, threat modeling, load tests, recovery tests, data governance, and customer acceptance are still required.
 

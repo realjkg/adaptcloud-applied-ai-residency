@@ -17,6 +17,7 @@ npm run check
 npm run test:unit
 npm run eval
 npm run lab:simulate
+npm run promotion:simulate -- --environment=all
 npm run readiness:production-reference
 npm run build
 terraform -chdir=infra/aws init -backend=false
@@ -28,7 +29,7 @@ IMAGE_TAG=student-residency:local npm run acceptance:container
 npm run acceptance:telemetry
 ```
 
-Expected result: six scenario/cloud simulations pass, both Terraform mock plans pass, the hardened container accepts only the intended requests, graceful shutdown is recorded, and the local collector receives a trace without intake content or authentication headers.
+Expected result: six scenario/cloud simulations and all five environment reviews pass, both Terraform mock plans pass, the hardened container accepts only the intended requests, graceful shutdown is recorded, and the local collector receives a trace without intake content or authentication headers. Promotion remains an evaluation and never authorizes deployment.
 
 ## Optional student-owned services
 
@@ -60,12 +61,12 @@ Follow `docs/STUDENT_BYOC.md`. Plan first. Apply only `sandbox` with `APPLY MY S
 - container live/ready, oversized-request, gateway-auth, and shutdown results;
 - sanitized trace ID and duration, not the trace payload;
 - optional live-Claude model and cost metadata, never its key;
-- optional sandbox plan/apply/destroy workflow URLs and verified cleanup; and
+- optional sandbox plan/apply/destroy workflow URLs, empty-state report, residual-inventory report, and billing-console verification; and
 - a short ADR describing remaining production gaps.
 
 ## Stop conditions
 
-Stop and ask the fork owner when a credential appears in output, a payload appears in telemetry, an image is not digest-pinned, a plan creates public ingress, a non-sandbox mutation is offered, cleanup cannot be proven, or expected charges are unclear.
+Stop and ask the fork owner when a credential appears in output, a payload appears in telemetry, an image is not digest-pinned, a plan creates public ingress, a non-sandbox mutation is offered, the authenticated cloud scope differs from the expected scope, cleanup cannot be proven, or expected charges are unclear. Never use account-wide cleanup in a shared or valuable cloud account.
 
 ## Handoff definition
 
