@@ -25,6 +25,20 @@ run "sandbox_plan" {
     values = { availability_zone = "us-east-2b" }
   }
 
+  override_data {
+    target = data.aws_iam_policy_document.task_assume
+    values = {
+      json = "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"sts:AssumeRole\",\"Principal\":{\"Service\":\"ecs-tasks.amazonaws.com\"}}]}"
+    }
+  }
+
+  override_data {
+    target = data.aws_iam_policy_document.telemetry
+    values = {
+      json = "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"xray:PutTraceSegments\"],\"Resource\":\"*\"}]}"
+    }
+  }
+
   assert {
     condition     = aws_ecs_service.service.desired_count == 1
     error_message = "The sandbox plan must remain right-sized."
