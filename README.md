@@ -52,6 +52,8 @@ DEPLOYMENT_URL=https://your-preview.vercel.app npm run smoke:deployment
 
 Fork owners must replace repository, identity, cloud, and support values before enabling infrastructure workflows. Students use their own fork, credentials, cloud account, state, registry, telemetry, and billing; the code has no technical dependency on Adapt Cloud. See `docs/FORK_SETUP.md` and `docs/STUDENT_BYOC.md`.
 
+Before handing the repository to a student, complete the clean-room, container, telemetry, Terraform, SBOM, and security gates in `docs/STUDENT_HANDOFF.md`.
+
 ## Dev-to-production path
 
 The same container and runtime contract move from local development to production. Development stays credential-free; production fails closed unless its gateway, managed-secret, immutable-audit, multi-zone, telemetry, cost, autoscaling, infrastructure-as-code, recovery, and rollback controls are declared.
