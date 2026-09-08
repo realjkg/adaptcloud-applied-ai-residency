@@ -13,6 +13,8 @@ export const promotionGates = {
   "container-acceptance": { stage: "sandbox", pillar: "security" },
   "terraform-plan": { stage: "sandbox", pillar: "operational-efficiency" },
   "telemetry-integration": { stage: "sandbox", pillar: "reliability" },
+  "cleanup-plan": { stage: "sandbox", pillar: "cost-optimization" },
+  "cleanup-verified": { stage: "sandbox", pillar: "cost-optimization" },
   "contract-tests": { stage: "qa", pillar: "reliability" },
   "negative-tests": { stage: "qa", pillar: "security" },
   "adversarial-tests": { stage: "qa", pillar: "security" },
