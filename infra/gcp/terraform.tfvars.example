@@ -1,12 +1,12 @@
 project_id                      = "personal-sandbox-project"
 region                          = "us-central1"
-image_digest                    = "us-central1-docker.pkg.dev/personal-sandbox-project/apps/adaptcloud@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-runtime_service_account         = "adaptcloud-runtime@personal-sandbox-project.iam.gserviceaccount.com"
+image_digest                    = "us-central1-docker.pkg.dev/personal-sandbox-project/apps/applied-ai-residency@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+runtime_service_account         = "residency-runtime@personal-sandbox-project.iam.gserviceaccount.com"
 invoker_member                  = "user:engineer@example.com"
 otel_collector_image            = "us-docker.pkg.dev/cloud-ops-agents-artifacts/google-cloud-opentelemetry-collector/otelcol-google@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-otel_config_secret              = "adaptcloud-otel-config"
-environment                     = "staging"
-min_instances                   = 2
+otel_config_secret              = "residency-otel-config"
+environment                     = "sandbox"
+min_instances                   = 1
 max_instances                   = 4
 monthly_model_budget_usd        = 100
 automatic_rollback              = false
