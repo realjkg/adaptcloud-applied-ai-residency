@@ -16,9 +16,10 @@ describe("cloud deployment foundations", () => {
 
   it("allows mutation only in a student sandbox with explicit confirmation", () => {
     const workflow = read(".github/workflows/infrastructure.yml");
-    expect(workflow).toContain('[ "$TARGET_ENVIRONMENT" != "sandbox" ]');
-    expect(workflow).toContain("APPLY MY SANDBOX");
-    expect(workflow).toContain("DESTROY MY SANDBOX");
+    const guard = read("scripts/guard-infrastructure.mjs");
+    expect(workflow).toContain("node scripts/guard-infrastructure.mjs");
+    expect(guard).toContain("APPLY MY SANDBOX");
+    expect(guard).toContain("DESTROY MY SANDBOX");
     expect(workflow).toMatch(/terraform\s+-chdir=infra\/aws\s+apply/);
     expect(workflow).toMatch(/terraform\s+-chdir=infra\/gcp\s+apply/);
     expect(workflow).toContain("AWS_TERRAFORM_SANDBOX_ROLE_ARN");
