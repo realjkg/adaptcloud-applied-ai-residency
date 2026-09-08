@@ -17,6 +17,8 @@
     "eval": "npm run build && node dist/scripts/run-evals.js",
     "lab:simulate": "npm run build && node dist/scripts/run-lab-simulations.js",
     "lab:simulate:claude": "npm run build && node dist/scripts/run-lab-simulations.js --claude-live",
+    "acceptance:container": "bash scripts/test-container-runtime.sh",
+    "acceptance:telemetry": "bash scripts/test-otel-integration.sh",
     "readiness": "npm run build && node dist/scripts/check-readiness.js",
     "readiness:development-reference": "npm run build && node --env-file=config/development-reference.env dist/scripts/check-readiness.js",
     "readiness:sandbox-reference": "npm run build && node --env-file=config/sandbox-reference.env dist/scripts/check-readiness.js",
