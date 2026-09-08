@@ -1,6 +1,8 @@
 # AWS and GCP deployment foundations
 
-These Terraform roots are application-team foundations, not account factories. They consume platform-owned identity and network prerequisites, deploy the same digest-pinned container, and place an OpenTelemetry collector beside it. GitHub Actions validates every pull request and can create an authenticated plan on manual request. It has no apply job.
+These Terraform roots are application-team foundations, not account factories. They consume student-owned identity and network prerequisites, deploy the same digest-pinned container, and place an OpenTelemetry collector beside it. GitHub Actions runs unit tests before validating every pull request. A manual run can create an authenticated plan for every environment and can apply or destroy only a student-owned sandbox.
+
+Nothing here calls or requires an Adapt Cloud account, credential, API, project, state backend, registry, identity, telemetry service, or billing account.
 
 ## What is owned here
 
@@ -17,8 +19,8 @@ These Terraform roots are application-team foundations, not account factories. T
 
 The platform owner creates these once, outside this application state:
 
-- GitHub OIDC trust restricted to this repository, branch/environment, and the `infrastructure-plan` GitHub environment;
-- a read/plan identity that cannot mutate resources;
+- GitHub OIDC trust restricted to the student's fork, approved branch, and target GitHub environment;
+- a read-only plan identity for each target environment and a separate least-privilege sandbox mutation identity;
 - remote encrypted Terraform state with locking, versioning, retention, and break-glass recovery;
 - container registry, image signing/provenance policy, and approved collector digest;
 - private networking, DNS, authenticating/rate-limiting gateway, and egress controls;
@@ -30,21 +32,24 @@ Readiness evidence is never invented. Restore, carbon/region, and (on GCP) exter
 
 ## Engineer sequence
 
-1. Build, scan, sign, and push the application image; copy its `repository@sha256:digest` reference.
-2. Copy the relevant `terraform.tfvars.example` to an ignored local `.tfvars` file and replace placeholders with sandbox resources.
-3. Run `terraform init`, `terraform fmt -check`, `terraform validate`, and `terraform plan`. Read every create/change/destroy line.
-4. On GitHub, configure environment variables listed below and manually run **Infrastructure foundations**. Download the seven-day text plan and attach the reviewed result to the change record.
-5. A human platform owner applies an approved plan from the organization's controlled deployment system. This repository deliberately cannot do so.
-6. Prove identity, private ingress, `/health/ready`, telemetry arrival, failure rollback, budget alarms, and cleanup. Record the evidence in `docs/adr/0001-cloud-foundation-decision.md`.
+1. Run `npm ci`, `npm run check`, and `npm run test:unit`; do not build an environment unless they pass.
+2. Build, scan, sign, and push the application image to the student's registry; copy its `repository@sha256:digest` reference.
+3. Copy the relevant `terraform.tfvars.example` to an ignored local `.tfvars` file and replace placeholders with student-owned sandbox resources.
+4. Run `terraform init`, `terraform fmt -check`, `terraform validate`, and `terraform plan`. Read every create/change/destroy line.
+5. On GitHub, configure the target environment variables listed below and manually run **Infrastructure foundations** with operation `plan`. Download the seven-day text plan and attach it to the change record.
+6. For `sandbox` only, review estimated cost and teardown, then run `apply` with confirmation `APPLY MY SANDBOX`.
+7. Prove identity, private ingress, `/health/ready`, telemetry arrival, failure rollback, and budget alarms. Record the evidence in `docs/adr/0001-cloud-foundation-decision.md`.
+8. Run `destroy` with confirmation `DESTROY MY SANDBOX`, then verify Terraform state and the cloud billing console. Staging and production remain plan-only and require a separate promotion system.
 
 ## GitHub environment variables
 
-Use repository environment `infrastructure-plan`, with required reviewers and no secrets.
+Create repository environments named `sandbox`, `staging`, and `production`, with required reviewers and no stored cloud credentials. Identifiers below are GitHub environment variables; authentication is exchanged through OIDC.
 
 | AWS | GCP |
 |---|---|
 | `AWS_TERRAFORM_PLAN_ROLE_ARN` | `GCP_WORKLOAD_IDENTITY_PROVIDER` |
-| `AWS_REGION` | `GCP_TERRAFORM_PLAN_SERVICE_ACCOUNT` |
+| `AWS_TERRAFORM_SANDBOX_ROLE_ARN` | `GCP_TERRAFORM_PLAN_SERVICE_ACCOUNT` |
+| `AWS_REGION` | `GCP_TERRAFORM_SANDBOX_SERVICE_ACCOUNT` |
 | `AWS_TF_STATE_BUCKET` | `GCP_TF_STATE_BUCKET` |
 | `AWS_TF_STATE_KEY` | `GCP_TF_STATE_PREFIX` |
 | `AWS_PRIVATE_SUBNET_IDS_JSON` | `GCP_PROJECT_ID` |
@@ -58,4 +63,4 @@ The workflow input supplies the application digest. The approved collector diges
 
 ## Stop conditions
 
-Do not proceed when a plan includes public ingress, wildcard administration, static cloud credentials, mutable image tags, secrets, a single failure zone, or an unexpected replacement/destruction. Do not use real payment, account, claim, or customer data in this residency.
+Do not proceed when a plan includes public ingress, wildcard administration, static cloud credentials, mutable image tags, secrets, or an unexpected replacement/destruction. Staging and production must also stop on a single failure zone. Do not use real payment, account, claim, or customer data in this residency.
