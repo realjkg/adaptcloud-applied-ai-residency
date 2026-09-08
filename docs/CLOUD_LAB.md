@@ -13,6 +13,13 @@ npm run lab:simulate
 
 The six application simulations pair with `terraform test` provider mocks in `infra/aws/foundation.tftest.hcl` and `infra/gcp/foundation.tftest.hcl`. Mock plans evaluate the real Terraform configuration without authenticating, creating resources, or estimating actual cloud charges.
 
+```bash
+terraform -chdir=infra/aws init -backend=false
+terraform -chdir=infra/aws test
+terraform -chdir=infra/gcp init -backend=false
+terraform -chdir=infra/gcp test
+```
+
 Start the collector, then run the application with OTLP export enabled:
 
 ```bash
