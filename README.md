@@ -11,6 +11,14 @@ The included sample agent turns a synthetic client intake into:
 - an optional Claude-assisted architecture recommendation; and
 - evidence metadata suitable for an engagement review.
 
+Run all three credential-free lab simulations across both cloud contracts:
+
+```bash
+npm run lab:simulate
+```
+
+This exercises commercial, payments, and insurance deterministic policy behavior for AWS and GCP. Terraform provider mocks validate the real infrastructure plans in CI without accessing an account. Live Claude testing is explicitly opt-in; see `docs/CLOUD_LAB.md`.
+
 ## Quick start
 
 ```bash
