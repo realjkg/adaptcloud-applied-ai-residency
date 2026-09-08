@@ -4,10 +4,10 @@ run "sandbox_plan" {
   command = plan
 
   variables {
-    aws_region                  = "us-east-2"
-    environment                 = "sandbox"
+    aws_region                 = "us-east-2"
+    environment                = "sandbox"
     image_digest               = "111122223333.dkr.ecr.us-east-2.amazonaws.com/applied-ai-residency@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    private_subnet_ids          = ["subnet-private-a", "subnet-private-b"]
+    private_subnet_ids         = ["subnet-private-a", "subnet-private-b"]
     service_security_group_ids = ["sg-trusted-gateway-only"]
     otel_collector_image       = "public.ecr.aws/aws-observability/aws-otel-collector@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     desired_count              = 1
