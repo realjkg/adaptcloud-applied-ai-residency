@@ -39,8 +39,8 @@ variable "environment" {
   type    = string
   default = "sandbox"
   validation {
-    condition     = contains(["sandbox", "staging", "production"], var.environment)
-    error_message = "environment must be sandbox, staging, or production."
+    condition     = contains(["sandbox", "qa", "staging", "production"], var.environment)
+    error_message = "environment must be sandbox, qa, staging, or production."
   }
 }
 
@@ -49,7 +49,7 @@ variable "desired_count" {
   default = 1
   validation {
     condition     = var.desired_count >= (var.environment == "sandbox" ? 1 : 2)
-    error_message = "Sandbox needs at least one task; staging and production need at least two."
+    error_message = "Sandbox needs at least one task; QA, staging, and production need at least two."
   }
 }
 
