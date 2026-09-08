@@ -20,6 +20,10 @@ const productionEnvironment: NodeJS.ProcessEnv = {
 };
 
 describe("well-architected runtime profile", () => {
+  it("recognizes the student sandbox as a distinct environment", () => {
+    expect(runtimeConfigFromEnvironment({ APP_ENV: "sandbox" }).environment).toBe("sandbox");
+  });
+
   it("fails closed when development defaults are labeled production", () => {
     const unsafe = runtimeConfigFromEnvironment({ APP_ENV: "production" });
     expect(() => assertProductionReady(unsafe)).toThrow(/SEC-001/);
