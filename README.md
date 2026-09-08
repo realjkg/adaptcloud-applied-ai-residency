@@ -14,7 +14,8 @@ The included sample agent turns a synthetic client intake into:
 ## Quick start
 
 ```bash
-npm install
+nvm use
+npm ci
 npm run check
 npm test
 npm run eval
@@ -33,7 +34,15 @@ curl -X POST http://localhost:3000/api/assess \
   --data-binary @examples/client-intake.json
 ```
 
-The workflow defaults to local deterministic mode. To request a Claude recommendation, copy `.env.example` to `.env`, supply the model and pricing currently approved by Adapt Cloud, and place the API key in the environment or platform secret manager. The program does not load `.env` automatically and never requires a key for tests.
+The workflow defaults to local deterministic mode. To request a Claude recommendation locally, copy `.env.example` to `.env`, supply the model and pricing currently approved by Adapt Cloud, place the API key in `.env`, and run `npm run dev:env`. The ordinary `npm run dev` command does not load `.env`, and tests never require a key.
+
+After a Vercel deployment, verify that the public surface is static and healthy:
+
+```bash
+DEPLOYMENT_URL=https://your-preview.vercel.app npm run smoke:deployment
+```
+
+Fork owners must replace repository, identity, cloud, and support values before enabling infrastructure workflows. See `docs/FORK_SETUP.md`.
 
 ## Dev-to-production path
 
