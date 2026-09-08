@@ -4,13 +4,25 @@ import { describe, expect, it } from "vitest";
 const read = (path: string): string => readFileSync(path, "utf8");
 
 describe("cloud deployment foundations", () => {
-  it("keeps the GitHub workflow plan-only and uses short-lived cloud identity", () => {
+  it("gates infrastructure on unit tests and uses short-lived cloud identity", () => {
     const workflow = read(".github/workflows/infrastructure.yml");
-    expect(workflow).not.toMatch(/terraform\s+(?:-chdir=\S+\s+)?apply/);
+    expect(workflow).toContain("needs: unit-tests");
+    expect(workflow).toContain("npm run test:unit");
     expect(workflow).toContain("id-token: write");
     expect(workflow).toContain("aws-actions/configure-aws-credentials@v6");
     expect(workflow).toContain("google-github-actions/auth@v3");
     expect(workflow).not.toMatch(/aws-access-key-id|credentials_json/);
+  });
+
+  it("allows mutation only in a student sandbox with explicit confirmation", () => {
+    const workflow = read(".github/workflows/infrastructure.yml");
+    expect(workflow).toContain('[ "$TARGET_ENVIRONMENT" != "sandbox" ]');
+    expect(workflow).toContain("APPLY MY SANDBOX");
+    expect(workflow).toContain("DESTROY MY SANDBOX");
+    expect(workflow).toMatch(/terraform\s+-chdir=infra\/aws\s+apply/);
+    expect(workflow).toMatch(/terraform\s+-chdir=infra\/gcp\s+apply/);
+    expect(workflow).toContain("AWS_TERRAFORM_SANDBOX_ROLE_ARN");
+    expect(workflow).toContain("GCP_TERRAFORM_SANDBOX_SERVICE_ACCOUNT");
   });
 
   it.each(["aws", "gcp"])("requires immutable images and private ingress for %s", (target) => {
