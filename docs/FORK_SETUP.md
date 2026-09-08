@@ -1,6 +1,6 @@
 # Fork setup
 
-This repository is safe to inspect and run locally with synthetic data. A fork does not inherit Adapt Cloud authorization, cloud trust, production evidence, or permission to process regulated information.
+This repository is safe to inspect and run locally with synthetic data. A fork does not inherit Adapt Cloud authorization, cloud trust, production evidence, or permission to process regulated information. It also has no technical dependency on Adapt Cloud: the fork owner supplies every account, credential, identity, registry, state backend, telemetry destination, and billing relationship.
 
 ## 1. Repository identity
 
@@ -46,15 +46,16 @@ DEPLOYMENT_URL=https://your-preview.vercel.app npm run smoke:deployment
 
 - Protect `main` with pull requests, review, resolved conversations, and required quality checks.
 - Enable Dependabot, secret scanning, push protection, private vulnerability reporting, and code scanning where available.
-- Create the `infrastructure-plan` environment with a required reviewer and protected branches.
-- Restrict cloud OIDC trust to the fork's exact repository, approved ref, and `infrastructure-plan` environment.
+- Create `sandbox`, `staging`, and `production` GitHub environments with required reviewers.
+- Restrict cloud OIDC trust to the fork's exact repository, approved ref, and target GitHub environment.
+- Give the sandbox mutation identity only the permissions needed by the reviewed Terraform roots; keep staging and production plan identities read-only.
 - Review and replace action version pins under the fork owner's supply-chain policy.
 
 ## 5. Cloud values
 
 Use `infra/README.md` as the authoritative variable list. Replace every example account, project, role, service account, network, registry, state, collector, gateway, budget, and region value. Keep images digest-pinned and credentials out of repository variables and Terraform state.
 
-The included workflow creates plans only. It cannot apply or destroy infrastructure. A platform owner must provide remote state, trusted ingress, managed secrets, telemetry destinations, recovery evidence, and a separately controlled promotion path.
+The included workflow can apply and destroy only the student's `sandbox`, after unit tests, Terraform validation, plan generation, environment review, and an exact confirmation phrase. It cannot mutate `staging` or `production`; those environments produce plans for a separately controlled promotion path. The fork owner must provide remote state, trusted ingress, managed secrets, telemetry destinations, recovery evidence, a budget alert, and a verified cleanup path.
 
 ## Acceptance evidence
 
@@ -64,4 +65,5 @@ A fork is ready for another engineer only when:
 2. deterministic execution works without credentials;
 3. the Vercel smoke check proves a static page rather than a function;
 4. repository ownership and security reporting point to the fork owner; and
-5. any cloud plan uses the fork's short-lived OIDC identity and contains no unexpected mutation, public ingress, secret, or mutable image tag.
+5. any cloud plan uses the fork's short-lived OIDC identity and contains no unexpected mutation, public ingress, secret, or mutable image tag; and
+6. a sandbox exercise is destroyed after evidence capture and its state and billing consoles are checked.
