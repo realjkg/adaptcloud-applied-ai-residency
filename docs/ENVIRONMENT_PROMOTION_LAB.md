@@ -9,7 +9,7 @@ Build once and retain the same immutable artifact identity through every stage. 
 | Stage | Student activity | Required evidence | Promotion question |
 |---|---|---|---|
 | Development | Map the scenario, implement deterministic controls, run unit tests and model evaluations | requirements, tests, evals, six-scenario matrix | Does the application meet its bounded contract? |
-| Sandbox | Exercise the container, Terraform provider mocks and local OTLP path | artifact identity, container acceptance, plans, trace | Can the candidate run safely in an isolated account? |
+| Sandbox | Exercise the container, Terraform provider mocks, local OTLP path and cleanup path | artifact identity, container acceptance, plans, trace, destroy plan and cleanup proof | Can the candidate run and be removed safely in an isolated account? |
 | QA | Test API contracts, malformed input, prompt injection, provider failure and supply-chain risk | contract, negative, adversarial and scan results | Does it fail closed without leaking or bypassing controls? |
 | Staging | Evaluate production-shaped scale, SLOs, recovery, rollback, cost and sustainability | load result, drills, SLO, cost and region decisions | Can operators detect, recover and control spend? |
 | Production | Review the threat model, runbook and accountable approvals | threat model, exercised runbook, change and owner approvals | Should an organization authorize a controlled rollout? |
@@ -58,7 +58,7 @@ Repeat the review for commercial, payments and insurance. Keep the platform arti
 
 The included evidence file uses `evidenceMode: simulation` and `simulation://` references. It demonstrates the end state but proves no real deployment. To create an observed record, replace each passing gate only after the corresponding CI run, cloud plan, trace, test report, drill or approval exists. Use stable, access-controlled references and never embed credentials, customer data, prompts or authentication headers.
 
-`readyForHumanReview` means the supplied evidence is complete enough for the next review. `deploymentAuthorized` is always `false`; this repository cannot approve production. Actual QA, staging or production mutation requires organization-owned roles, remote state, GitHub Environment protection, segregation of duties and explicit authorization outside this emulator.
+`readyForHumanReview` means the supplied evidence is complete enough for the next review. Sandbox cleanup evidence is cumulative: without a reviewed destroy plan and verified empty state/residual inventory, QA and every later review are blocked. `deploymentAuthorized` is always `false`; this repository cannot approve production. Actual QA, staging or production mutation requires organization-owned roles, remote state, GitHub Environment protection, segregation of duties and explicit authorization outside this emulator.
 
 ## Student deliverables
 
