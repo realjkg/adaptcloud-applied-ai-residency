@@ -13,7 +13,7 @@ variable "image_digest" {
 }
 
 variable "private_subnet_ids" {
-  description = "At least two existing private subnets owned by the platform team."
+  description = "At least two existing private subnets owned by the student's cloud account."
   type        = list(string)
   validation {
     condition     = length(var.private_subnet_ids) >= 2
@@ -32,24 +32,24 @@ variable "service_security_group_ids" {
 
 variable "name" {
   type    = string
-  default = "adaptcloud-residency"
+  default = "applied-ai-residency"
 }
 
 variable "environment" {
   type    = string
-  default = "staging"
+  default = "sandbox"
   validation {
-    condition     = contains(["staging", "production"], var.environment)
-    error_message = "environment must be staging or production."
+    condition     = contains(["sandbox", "staging", "production"], var.environment)
+    error_message = "environment must be sandbox, staging, or production."
   }
 }
 
 variable "desired_count" {
   type    = number
-  default = 2
+  default = 1
   validation {
-    condition     = var.desired_count >= 2
-    error_message = "The foundation keeps at least two tasks for resilience evidence."
+    condition     = var.desired_count >= (var.environment == "sandbox" ? 1 : 2)
+    error_message = "Sandbox needs at least one task; staging and production need at least two."
   }
 }
 
@@ -75,7 +75,7 @@ variable "carbon_aware_region" {
 }
 
 variable "otel_collector_image" {
-  description = "Organization-approved, digest-pinned AWS Distro for OpenTelemetry collector image."
+  description = "Fork-owner-approved, digest-pinned AWS Distro for OpenTelemetry collector image."
   type        = string
   validation {
     condition     = can(regex("@sha256:[0-9a-f]{64}$", var.otel_collector_image))
