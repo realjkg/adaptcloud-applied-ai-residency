@@ -5,12 +5,11 @@ This repository uses one immutable application artifact from development through
 ## Promotion path
 
 ```mermaid
-flowchart LR
-    A["Local deterministic mode"] --> B["Pull-request gates"]
-    B --> C["Immutable container"]
-    C --> D["Staging with managed services"]
-    D --> E["Canary plus SLO gates"]
-    E --> F["Production or auto-rollback"]
+flowchart TD
+    A["Development contract"] --> B["Student sandbox"]
+    B --> C["QA failure testing"]
+    C --> D["Staging operations"]
+    D --> E["Production review"]
 ```
 
 The service reads the same environment contract everywhere. `src/platform/runtime.ts` validates bounds and refuses to start in `production` when required controls are absent. `config/production-reference.env` contains only non-secret reference settings. Credentials must be injected at runtime from a managed secret store or workload identity.
@@ -64,7 +63,7 @@ npm audit --omit=dev
 docker build -t adaptcloud-applied-ai-residency:local .
 ```
 
-The concrete AWS/GCP application adapters are in `infra/`. Their GitHub workflow may mutate only a student-owned sandbox after tests and explicit confirmation. Staging and production are intentionally plan-only: their mutation belongs to a separate organization-controlled system with environment approval, remote state, policy-as-code, and segregation of duties. `docs/adr/0001-cloud-foundation-decision.md` is the evidence record for either target.
+The concrete AWS/GCP application adapters are in `infra/`. Their GitHub workflow may mutate only a student-owned sandbox after tests and explicit confirmation. QA, staging and production are intentionally plan-only: their mutation belongs to a separate organization-controlled system with environment approval, remote state, policy-as-code, and segregation of duties. `docs/adr/0001-cloud-foundation-decision.md` is the evidence record for either target. `docs/ENVIRONMENT_PROMOTION_LAB.md` defines the cumulative evidence exercise.
 
 For an actual target environment, run `npm run readiness` with its non-secret deployment variables before rollout. Production startup repeats the check and fails closed if any blocker remains. A green reference profile proves only that the configuration contract is internally consistent; owner review, threat modeling, load tests, recovery tests, data governance, and customer acceptance are still required.
 
