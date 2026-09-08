@@ -17,6 +17,7 @@ npm run check
 npm run test:unit
 npm run eval
 npm run lab:simulate
+npm run promotion:simulate -- --environment=all
 npm run readiness:production-reference
 npm run build
 terraform -chdir=infra/aws init -backend=false
@@ -28,7 +29,7 @@ IMAGE_TAG=student-residency:local npm run acceptance:container
 npm run acceptance:telemetry
 ```
 
-Expected result: six scenario/cloud simulations pass, both Terraform mock plans pass, the hardened container accepts only the intended requests, graceful shutdown is recorded, and the local collector receives a trace without intake content or authentication headers.
+Expected result: six scenario/cloud simulations and all five environment reviews pass, both Terraform mock plans pass, the hardened container accepts only the intended requests, graceful shutdown is recorded, and the local collector receives a trace without intake content or authentication headers. Promotion remains an evaluation and never authorizes deployment.
 
 ## Optional student-owned services
 
