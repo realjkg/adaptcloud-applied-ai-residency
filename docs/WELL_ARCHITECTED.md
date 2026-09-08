@@ -21,7 +21,7 @@ The service reads the same environment contract everywhere. `src/platform/runtim
 | Security | No auth, local environment, synthetic data | Trusted gateway, managed secrets, immutable audit sink, private service ingress, least-privilege workload identity | readiness findings, access-policy review, audit delivery test |
 | Resilience | One local process and deterministic fallback | Two or more replicas across zones, bounded retries and timeouts, restore drill, dependency circuit breaking at the platform edge | failure-injection result, restore timestamp, recovery evidence |
 | Reliability | Console events and health route | Separate live/ready checks, OTLP export, SLO alerts, canary or rolling release, automatic rollback | dashboard link, alert test, deployment record |
-| Cost optimization | Token estimate with model disabled by default | Explicit model budget, request and output caps, rate limit, per-scenario cost attribution, budget alerts | cost evaluation, budget configuration, monthly variance |
+| Cost optimization | Token estimate with model disabled by default | Explicit model budget, request and output caps, rate limit, per-scenario cost attribution, budget alerts, and verified sandbox teardown | cost evaluation, budget configuration, cleanup receipt, monthly variance |
 | Sustainability | Small deterministic process | Demand-based autoscaling, efficient model routing, bounded outputs, region choice balancing carbon, latency, and residency | utilization trend, region decision record, tokens per successful outcome |
 | Operational efficiency | Local scripts | Infrastructure as code, immutable image, policy gates, automated smoke/evaluation checks, runbooks, ownership and rollback | CI run, image digest, change record, runbook exercise |
 
