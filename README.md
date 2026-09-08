@@ -34,7 +34,7 @@ curl -X POST http://localhost:3000/api/assess \
   --data-binary @examples/client-intake.json
 ```
 
-The workflow defaults to local deterministic mode. To request a Claude recommendation locally, copy `.env.example` to `.env`, supply the model and pricing currently approved by Adapt Cloud, place the API key in `.env`, and run `npm run dev:env`. The ordinary `npm run dev` command does not load `.env`, and tests never require a key.
+The workflow defaults to local deterministic mode. To request a Claude recommendation locally, copy `.env.example` to `.env`, supply a model and pricing approved by the fork owner, place the API key in `.env`, and run `npm run dev:env`. The ordinary `npm run dev` command does not load `.env`, and tests never require a key.
 
 After a Vercel deployment, verify that the public surface is static and healthy:
 
@@ -42,7 +42,7 @@ After a Vercel deployment, verify that the public surface is static and healthy:
 DEPLOYMENT_URL=https://your-preview.vercel.app npm run smoke:deployment
 ```
 
-Fork owners must replace repository, identity, cloud, and support values before enabling infrastructure workflows. See `docs/FORK_SETUP.md`.
+Fork owners must replace repository, identity, cloud, and support values before enabling infrastructure workflows. Students use their own fork, credentials, cloud account, state, registry, telemetry, and billing; the code has no technical dependency on Adapt Cloud. See `docs/FORK_SETUP.md` and `docs/STUDENT_BYOC.md`.
 
 ## Dev-to-production path
 
@@ -55,7 +55,7 @@ docker build -t adaptcloud-applied-ai-residency:local .
 
 The reference profile contains no secrets and is not a production approval. See `docs/WELL_ARCHITECTED.md` for the six-pillar control map, scenario SLO overlays, platform-adapter contract, promotion gates, and residual obligations; use `docs/RUNBOOK.md` for shared incident, rollback, and restore procedures.
 
-AWS ECS Fargate and GCP Cloud Run application-layer foundations now live in `infra/`. Pull requests validate both roots; a manually approved GitHub workflow exchanges OIDC identity and produces a plan, but contains no apply step. Use `docs/CLOUD_LAB.md` for the OpenTelemetry and cross-cloud evidence exercise and `infra/README.md` for prerequisites and stop conditions.
+AWS ECS Fargate and GCP Cloud Run application-layer foundations live in `infra/`. Unit tests must pass before either root is validated or planned. A manually triggered GitHub workflow exchanges short-lived OIDC identity from the student's fork: it may apply or destroy only `sandbox`, while `staging` and `production` remain reviewed plans. Use `docs/CLOUD_LAB.md` for the OpenTelemetry and cross-cloud evidence exercise and `infra/README.md` for prerequisites and stop conditions.
 
 ## Development environments
 
