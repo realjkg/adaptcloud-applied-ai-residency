@@ -1,5 +1,5 @@
 variable "project_id" {
-  description = "Existing GCP project owned by the platform team."
+  description = "Existing GCP project owned by the student."
   type        = string
 }
 
@@ -33,24 +33,24 @@ variable "invoker_member" {
 
 variable "name" {
   type    = string
-  default = "adaptcloud-residency"
+  default = "applied-ai-residency"
 }
 
 variable "environment" {
   type    = string
-  default = "staging"
+  default = "sandbox"
   validation {
-    condition     = contains(["staging", "production"], var.environment)
-    error_message = "environment must be staging or production."
+    condition     = contains(["sandbox", "staging", "production"], var.environment)
+    error_message = "environment must be sandbox, staging, or production."
   }
 }
 
 variable "min_instances" {
   type    = number
-  default = 2
+  default = 1
   validation {
-    condition     = var.min_instances >= 2
-    error_message = "The foundation keeps at least two instances for resilience evidence."
+    condition     = var.min_instances >= (var.environment == "sandbox" ? 1 : 2)
+    error_message = "Sandbox needs at least one instance; staging and production need at least two."
   }
 }
 
@@ -78,7 +78,7 @@ variable "carbon_aware_region" {
 }
 
 variable "otel_collector_image" {
-  description = "Organization-approved, digest-pinned OpenTelemetry collector image."
+  description = "Fork-owner-approved, digest-pinned OpenTelemetry collector image."
   type        = string
   validation {
     condition     = can(regex("@sha256:[0-9a-f]{64}$", var.otel_collector_image))
