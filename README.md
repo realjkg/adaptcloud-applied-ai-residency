@@ -54,6 +54,8 @@ Fork owners must replace repository, identity, cloud, and support values before 
 
 Before handing the repository to a student, complete the clean-room, container, telemetry, Terraform, SBOM, and security gates in `docs/STUDENT_HANDOFF.md`.
 
+The guided promotion lab makes QA a first-class stage and evaluates cumulative evidence from development through production review without authorizing deployment. Run `npm run promotion:simulate -- --environment=all` and follow `docs/ENVIRONMENT_PROMOTION_LAB.md`.
+
 ## Dev-to-production path
 
 The same container and runtime contract move from local development to production. Development stays credential-free; production fails closed unless its gateway, managed-secret, immutable-audit, multi-zone, telemetry, cost, autoscaling, infrastructure-as-code, recovery, and rollback controls are declared.

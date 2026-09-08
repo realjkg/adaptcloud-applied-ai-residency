@@ -24,6 +24,10 @@ describe("well-architected runtime profile", () => {
     expect(runtimeConfigFromEnvironment({ APP_ENV: "sandbox" }).environment).toBe("sandbox");
   });
 
+  it("recognizes QA as a distinct pre-production environment", () => {
+    expect(runtimeConfigFromEnvironment({ APP_ENV: "qa" }).environment).toBe("qa");
+  });
+
   it("fails closed when development defaults are labeled production", () => {
     const unsafe = runtimeConfigFromEnvironment({ APP_ENV: "production" });
     expect(() => assertProductionReady(unsafe)).toThrow(/SEC-001/);

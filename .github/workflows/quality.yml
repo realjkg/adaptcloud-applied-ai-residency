@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [development, sandbox, staging, production]
+        environment: [development, sandbox, qa, staging, production]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

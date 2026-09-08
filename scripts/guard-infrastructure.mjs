@@ -1,4 +1,4 @@
-const environments = new Set(["sandbox", "staging", "production"]);
+const environments = new Set(["sandbox", "qa", "staging", "production"]);
 const operations = new Set(["plan", "apply", "destroy"]);
 
 export function evaluateInfrastructureGuard(environment, operation, confirmation = "") {
