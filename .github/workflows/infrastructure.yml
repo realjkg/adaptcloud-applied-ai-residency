@@ -8,6 +8,8 @@ on:
       - "config/**"
       - "src/platform/runtime.ts"
       - "tests/infrastructure.test.ts"
+      - "tests/infrastructure-guard.test.ts"
+      - "scripts/guard-infrastructure.mjs"
       - ".github/workflows/infrastructure.yml"
   workflow_dispatch:
     inputs:
@@ -86,23 +88,12 @@ jobs:
       OPERATION: ${{ inputs.operation }}
       CONFIRMATION: ${{ inputs.confirmation }}
     steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
       - name: Enforce the student-owned mutation boundary
-        run: |
-          if [ "$OPERATION" = "plan" ]; then
-            exit 0
-          fi
-          if [ "$TARGET_ENVIRONMENT" != "sandbox" ]; then
-            echo "Only sandbox can be mutated by this repository."
-            exit 1
-          fi
-          if [ "$OPERATION" = "apply" ] && [ "$CONFIRMATION" != "APPLY MY SANDBOX" ]; then
-            echo "Sandbox apply confirmation did not match."
-            exit 1
-          fi
-          if [ "$OPERATION" = "destroy" ] && [ "$CONFIRMATION" != "DESTROY MY SANDBOX" ]; then
-            echo "Sandbox destroy confirmation did not match."
-            exit 1
-          fi
+        run: node scripts/guard-infrastructure.mjs
 
   aws:
     if: github.event_name == 'workflow_dispatch' && inputs.target == 'aws'
