@@ -4,12 +4,20 @@ import { describe, expect, it } from "vitest";
 const read = (path: string): string => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
 describe("Vercel walkthrough contract", () => {
-  it("publishes a static output directory after the TypeScript build", () => {
+  it("forces a static-only deployment without a framework build", () => {
     const config = JSON.parse(read("vercel.json")) as Record<string, unknown>;
-    expect(config.buildCommand).toBe("npm run build");
+    expect(config.framework).toBeNull();
+    expect(config.buildCommand).toBeNull();
     expect(config.outputDirectory).toBe("public");
     expect(read("public/index.html")).toContain("/app.js");
     expect(read("public/index.html")).toContain("/styles.css");
+  });
+
+  it("provides an external deployment smoke check", () => {
+    const smoke = read("scripts/check-static-deployment.mjs");
+    expect(smoke).toContain("DEPLOYMENT_URL");
+    expect(smoke).toContain("FUNCTION_INVOCATION_FAILED");
+    expect(smoke).toContain("Adapt Cloud Applied AI Engineer Residency");
   });
 
   it("keeps the browser walkthrough synthetic and disconnected", () => {
