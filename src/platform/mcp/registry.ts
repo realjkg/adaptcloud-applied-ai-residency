@@ -11,7 +11,7 @@ import type {
   McpUntrustedData
 } from "./contracts.js";
 import { evaluateConnectorCall } from "./policy.js";
-import { deniedResolver, type CredentialRequest, type CredentialResolver } from "./credentials.js";
+import { deniedResolver, type CredentialRequest, type CredentialResolver, type ShortLivedCredential } from "./credentials.js";
 import type { McpTransport, McpTransportResult } from "./transport.js";
 import { auditName, defaultMcpAuditSink, emitMcpAuditEvent, type McpAuditSink } from "./audit.js";
 
@@ -62,9 +62,48 @@ function releaseSlot(context: McpCallContext): void {
   inFlightByContext.set(context, current > 0 ? current - 1 : 0);
 }
 
-/** Media type without parameters, lowercased: `application/json; charset=utf-8` is compared as `application/json`. */
-function normalizeContentType(value: string): string {
+/**
+ * Media type without parameters, lowercased: `application/json; charset=utf-8` is compared as
+ * `application/json`. The argument is typed as a string and checked as `unknown` anyway: the value
+ * crosses the transport seam, and the obvious live implementation forwards
+ * `response.headers.get("content-type")`, which is `string | null`. A non-string there must be a
+ * refusal, never a `TypeError` from `.split` — a throw would break both invariants of this module
+ * at once (never throw, exactly one audit event).
+ */
+function normalizeContentType(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
   return value.split(";")[0]?.trim().toLowerCase() ?? "";
+}
+
+const transportFailureReasons: ReadonlySet<string> = new Set([
+  "transport_unavailable",
+  "transport_timeout",
+  "transport_refused"
+]);
+
+/**
+ * Shape check at the transport seam. A transport is external code — a stub in a lab today, an
+ * HTTP client later — so what it returns is validated rather than trusted to match its type.
+ * `null`, a missing `ok`, or an unrecognised `reason` becomes `transport_unavailable`, which is
+ * how every other unusable answer from a transport is already reported, instead of an exception
+ * escaping the call path and leaving no audit event behind.
+ */
+function asTransportResult(value: unknown): McpTransportResult {
+  const unusable: McpTransportResult = { ok: false, reason: "transport_unavailable" };
+  if (value === null || typeof value !== "object") return unusable;
+  const candidate = value as { readonly ok?: unknown; readonly reason?: unknown };
+  if (candidate.ok === true) return value as Extract<McpTransportResult, { ok: true }>;
+  if (candidate.ok === false && typeof candidate.reason === "string" && transportFailureReasons.has(candidate.reason)) {
+    return value as Extract<McpTransportResult, { ok: false }>;
+  }
+  return unusable;
+}
+
+/** Same reasoning for the credential seam: an off-contract resolution is `credential_unavailable`. */
+function hasCredential(value: unknown): value is { readonly ok: true; readonly credential: ShortLivedCredential } {
+  if (value === null || typeof value !== "object") return false;
+  const candidate = value as { readonly ok?: unknown; readonly credential?: { readonly reveal?: unknown } };
+  return candidate.ok === true && typeof candidate.credential?.reveal === "function";
 }
 
 /**
@@ -82,7 +121,9 @@ function transportMetadataFailure(
   }
   if (result.contentType !== undefined) {
     const contentType = normalizeContentType(result.contentType);
-    if (!allowed.allowedContentTypes.includes(contentType)) return "content_type_not_allowed";
+    if (contentType === undefined || !allowed.allowedContentTypes.includes(contentType)) {
+      return "content_type_not_allowed";
+    }
   }
   return undefined;
 }
@@ -104,10 +145,25 @@ export function createConnectorRegistry(
   return registry;
 }
 
-async function withTimeout(work: Promise<McpTransportResult>, timeoutMs: number): Promise<McpTransportResult> {
+/**
+ * Bound one attempt in time and cancel the work when the bound wins.
+ *
+ * Racing alone only bounds how long *this frame* waits; the transport keeps running, so the
+ * request is still in flight after the caller has been told it timed out. The abort controller is
+ * what makes the timeout mean something at the socket, and the caller additionally keeps the
+ * concurrency slot until `work` settles, so the cap bounds real in-flight work rather than frames.
+ */
+async function withTimeout(
+  work: Promise<McpTransportResult>,
+  timeoutMs: number,
+  controller: AbortController
+): Promise<McpTransportResult> {
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<McpTransportResult>((resolve) => {
-    timer = setTimeout(() => resolve({ ok: false, reason: "transport_timeout" }), timeoutMs);
+    timer = setTimeout(() => {
+      controller.abort();
+      resolve({ ok: false, reason: "transport_timeout" });
+    }, timeoutMs);
     timer.unref?.();
   });
   try {
@@ -115,6 +171,31 @@ async function withTimeout(work: Promise<McpTransportResult>, timeoutMs: number)
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+/**
+ * Ceiling on the wall-clock time one connector call may consume across all of its attempts.
+ *
+ * `maxAttempts` (up to 3) multiplied by `callTimeoutMs` (up to 30000) is 90 seconds, which
+ * outlives the runtime's own `REQUEST_TIMEOUT_MS` ceiling of 60 seconds: the enclosing request
+ * would already have been abandoned while this call was still retrying. The deadline is shared
+ * across attempts and bounds each attempt to the time that is left, so the configured retry
+ * budget can never exceed the request it runs inside.
+ */
+export const maxTotalCallMs = 30_000;
+
+/** Wall-clock budget for one call across every attempt it is allowed to make. */
+export function callBudgetMs(maxAttempts: number, timeoutMs: number): number {
+  return Math.min(maxAttempts * timeoutMs, maxTotalCallMs);
+}
+
+/**
+ * Time the next attempt may take: whatever is left of the shared budget, never more than one
+ * configured call timeout. Zero or less means the call is out of budget and no further attempt is
+ * started — the retry loop cannot extend a call past the deadline it began with.
+ */
+export function attemptBudgetMs(elapsedMs: number, maxAttempts: number, timeoutMs: number): number {
+  return Math.min(timeoutMs, callBudgetMs(maxAttempts, timeoutMs) - elapsedMs);
 }
 
 export async function callConnector(context: McpCallContext, request: McpCallRequest): Promise<McpCallResult> {
@@ -128,8 +209,13 @@ export async function callConnector(context: McpCallContext, request: McpCallReq
   let approvalId: string | undefined;
   let attempts = 0;
   let resultBytes = 0;
+  let recorded = false;
 
+  // Exactly one event per path, enforced rather than remembered: the flag makes a second call a
+  // no-op, so the catch-all below cannot double-record a path that already emitted.
   const record = (result: McpCallResult): McpCallResult => {
+    if (recorded) return result;
+    recorded = true;
     emitMcpAuditEvent(sink, {
       type: "mcp.connector.call",
       connectorId,
@@ -145,86 +231,127 @@ export async function callConnector(context: McpCallContext, request: McpCallReq
     return result;
   };
 
-  const now = context.now ?? (() => new Date());
-  const decision = evaluateConnectorCall(context.config, request, context.runtime, now());
-  if (!decision.ok) return record({ ok: false, reason: decision.reason });
-  const allowed = decision.allowed;
-  connectorId = allowed.connectorId;
-  operationName = allowed.operation;
-  operationClass = allowed.operationClass;
-  approvalId = allowed.approvalId;
-
-  // The concurrency bound is taken before any credential is minted or any socket would open.
-  if (!acquireSlot(context, context.config.limits.maxConcurrentCalls)) {
-    return record(fail("concurrency_limit_reached"));
-  }
   try {
-    const credentialRequest: CredentialRequest = {
-      connectorId: allowed.connectorId,
-      provider: allowed.provider,
-      operation: allowed.operation,
-      audience: allowed.endpointHost,
-      scopes: [allowed.operationClass === "read-only" ? "read" : "write"]
-    };
-    const resolver = context.resolver ?? deniedResolver;
-    let resolution;
-    try {
-      resolution = await resolver.resolve(credentialRequest);
-    } catch {
-      // The rejection value may carry the credential material, so it is discarded unread.
-      return record(fail("credential_unavailable"));
-    }
-    if (!resolution.ok) return record(fail("credential_unavailable"));
+    const now = context.now ?? (() => new Date());
+    const decision = evaluateConnectorCall(context.config, request, context.runtime, now());
+    if (!decision.ok) return record({ ok: false, reason: decision.reason });
+    const allowed = decision.allowed;
+    connectorId = allowed.connectorId;
+    operationName = allowed.operation;
+    operationClass = allowed.operationClass;
+    approvalId = allowed.approvalId;
 
-    let last: McpTransportResult = { ok: false, reason: "transport_unavailable" };
-    for (let attempt = 1; attempt <= allowed.maxAttempts; attempt += 1) {
-      attempts = attempt;
+    // The concurrency bound is taken before any credential is minted or any socket would open.
+    if (!acquireSlot(context, context.config.limits.maxConcurrentCalls)) {
+      return record(fail("concurrency_limit_reached"));
+    }
+
+    // Work started at the transport seam. The slot is held until every one of these settles, not
+    // until this frame returns: a timed-out attempt is still running until the transport honours
+    // the abort, and releasing early would let the cap count frames instead of sockets.
+    const started: Promise<unknown>[] = [];
+    let unsettled = 0;
+    try {
+      const credentialRequest: CredentialRequest = {
+        connectorId: allowed.connectorId,
+        provider: allowed.provider,
+        operation: allowed.operation,
+        audience: allowed.endpointHost,
+        scopes: [allowed.operationClass === "read-only" ? "read" : "write"]
+      };
+      const resolver = context.resolver ?? deniedResolver;
+      let resolution: unknown;
       try {
-        last = await withTimeout(
-          context.transport.invoke({
-            connectorId: allowed.connectorId,
-            operation: allowed.operation,
-            endpointUrl: allowed.endpointUrl,
-            input: request.input,
-            timeoutMs: allowed.timeoutMs,
-            attempt,
-            credential: resolution.credential
-          }),
-          allowed.timeoutMs
-        );
+        resolution = await resolver.resolve(credentialRequest);
       } catch {
-        last = { ok: false, reason: "transport_unavailable" };
+        // The rejection value may carry the credential material, so it is discarded unread.
+        return record(fail("credential_unavailable"));
       }
-      if (last.ok) break;
-      // A refusal is a decision, not a fault, and a non-idempotent operation is never repeated.
-      if (last.reason === "transport_refused" || !allowed.retryPermitted) break;
+      // An off-contract resolution is indistinguishable from a refusal, so it cannot be probed.
+      if (!hasCredential(resolution)) return record(fail("credential_unavailable"));
+      const credential: ShortLivedCredential = resolution.credential;
+
+      // One deadline for the whole call, shared by every attempt.
+      let last: McpTransportResult = { ok: false, reason: "transport_unavailable" };
+      for (let attempt = 1; attempt <= allowed.maxAttempts; attempt += 1) {
+        const remainingMs = attemptBudgetMs(Date.now() - startedAt, allowed.maxAttempts, allowed.timeoutMs);
+        if (remainingMs <= 0) {
+          // Out of budget before this attempt could start: the call is over, not still retrying.
+          if (attempt > 1) last = { ok: false, reason: "transport_timeout" };
+          break;
+        }
+        attempts = attempt;
+        const controller = new AbortController();
+        try {
+          const invocation = Promise.resolve().then(async () =>
+            await context.transport.invoke({
+              connectorId: allowed.connectorId,
+              operation: allowed.operation,
+              endpointUrl: allowed.endpointUrl,
+              input: request.input,
+              timeoutMs: remainingMs,
+              attempt,
+              credential,
+              signal: controller.signal
+            })
+          );
+          unsettled += 1;
+          const tracked = invocation.then(
+            (value) => {
+              unsettled -= 1;
+              return value;
+            },
+            (error: unknown) => {
+              unsettled -= 1;
+              throw error;
+            }
+          );
+          started.push(tracked.then(() => undefined, () => undefined));
+          last = asTransportResult(await withTimeout(tracked, remainingMs, controller));
+        } catch {
+          controller.abort();
+          last = { ok: false, reason: "transport_unavailable" };
+        }
+        if (last.ok) break;
+        // A refusal is a decision, not a fault, and a non-idempotent operation is never repeated.
+        if (last.reason === "transport_refused" || !allowed.retryPermitted) break;
+      }
+      if (!last.ok) return record(fail(last.reason));
+
+      const metadataFailure = transportMetadataFailure(allowed, last);
+      if (metadataFailure) return record(fail(metadataFailure));
+
+      let serialized: string | undefined;
+      try {
+        serialized = JSON.stringify(last.body);
+      } catch {
+        return record(fail("result_not_serializable"));
+      }
+      if (serialized === undefined) return record(fail("result_not_serializable"));
+      const bytes = Buffer.byteLength(serialized, "utf8");
+      // Recorded before the size decision, not after: `result_too_large` is the one refusal whose
+      // reason is the size, so an operator tuning `MCP_MAX_RESULT_BYTES` from audit data must see
+      // the measurement that caused it rather than a zero.
+      resultBytes = bytes;
+      // Refuse rather than truncate: a half-read body is a fact nobody checked.
+      if (bytes > allowed.maxResultBytes) return record(fail("result_too_large"));
+
+      const data: McpUntrustedData = {
+        untrusted: true,
+        connectorId: allowed.connectorId,
+        operation: allowed.operation,
+        value: JSON.parse(serialized) as unknown
+      };
+      return record({ ok: true, connectorId: allowed.connectorId, operation: allowed.operation, data, bytes });
+    } finally {
+      if (unsettled === 0) releaseSlot(context);
+      else void Promise.allSettled(started).then(() => releaseSlot(context));
     }
-    if (!last.ok) return record(fail(last.reason));
-
-    const metadataFailure = transportMetadataFailure(allowed, last);
-    if (metadataFailure) return record(fail(metadataFailure));
-
-    let serialized: string | undefined;
-    try {
-      serialized = JSON.stringify(last.body);
-    } catch {
-      return record(fail("result_not_serializable"));
-    }
-    if (serialized === undefined) return record(fail("result_not_serializable"));
-    const bytes = Buffer.byteLength(serialized, "utf8");
-    // Refuse rather than truncate: a half-read body is a fact nobody checked.
-    if (bytes > allowed.maxResultBytes) return record(fail("result_too_large"));
-    resultBytes = bytes;
-
-    const data: McpUntrustedData = {
-      untrusted: true,
-      connectorId: allowed.connectorId,
-      operation: allowed.operation,
-      value: JSON.parse(serialized) as unknown
-    };
-    return record({ ok: true, connectorId: allowed.connectorId, operation: allowed.operation, data, bytes });
-  } finally {
-    releaseSlot(context);
+  } catch {
+    // Nothing may leave this function by throwing: a caller that must fall back deterministically
+    // cannot do so from an exception, and an unrecorded path is an egress call with no audit
+    // trail. An unexpected fault is reported the same way an unusable transport answer is.
+    return record(fail("transport_unavailable"));
   }
 }
 
@@ -236,7 +363,10 @@ export interface McpSession {
 /**
  * Per-exchange budget held by the caller. An unbounded connector loop is a cost, latency, and
  * partner-abuse incident, so the cap is counted here rather than trusted to the model or the
- * connector. A refused call still consumes nothing: only attempts that reach policy are counted.
+ * connector. The budget is spent on the attempt, not on the outcome: it is decremented before
+ * `callConnector` runs, so a call that policy or the transport refuses consumes one unit of the
+ * exchange budget exactly like a successful one. That is deliberate — a caller that retried a
+ * refused call for free would have no bound at all, which is the loop this cap exists to stop.
  */
 export function createMcpSession(context: McpCallContext, limit?: number): McpSession {
   const cap = limit ?? context.config.limits.maxCallsPerExchange;

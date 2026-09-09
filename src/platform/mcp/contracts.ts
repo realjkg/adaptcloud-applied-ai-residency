@@ -105,6 +105,10 @@ export const policyRefusalReasons = [
   "wildcard_not_permitted",
   "endpoint_url_invalid",
   "endpoint_not_https",
+  // A username or password in the endpoint URL is a static credential entering through
+  // configuration; distinct from `endpoint_url_invalid` because the URL parses fine and the
+  // remedy is to remove the credential, not to fix a typo.
+  "endpoint_userinfo_not_permitted",
   "endpoint_host_metadata_service",
   "endpoint_host_not_public",
   "endpoint_host_not_allowlisted",

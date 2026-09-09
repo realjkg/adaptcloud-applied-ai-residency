@@ -33,6 +33,23 @@ function hasWildcard(entries: readonly string[]): boolean {
   return entries.some((entry) => entry.includes("*"));
 }
 
+/**
+ * Canonical form of a host for every check in this module and for the operator allowlist.
+ *
+ * The WHATWG parser preserves a trailing root dot in a name (`localhost.`, `metadata.google.internal.`)
+ * and that dotted form resolves to exactly the same address as the undotted one. Left in place it
+ * defeats every name-based rule here at once: the metadata set misses, each suffix rule misses, and
+ * the bare-label rule misses because the host now "contains a dot". Canonicalising here — before any
+ * check and before the allowlist comparison — is what keeps the documented invariant true, that the
+ * allowlist can only narrow the permitted set and never re-open a blocked address. Repeated trailing
+ * dots are stripped too: `localhost..` is not a resolvable distinct name, only a distinct string.
+ * A port never appears in `URL.hostname`, so no port stripping is needed for an endpoint; allowlist
+ * entries are shape-checked at parse time in `config.ts`.
+ */
+export function canonicalizeHost(host: string): string {
+  return host.trim().toLowerCase().replace(/^\[|\]$/g, "").replace(/\.+$/, "");
+}
+
 const metadataHosts = new Set([
   "169.254.169.254",
   "169.254.170.2",
@@ -72,6 +89,24 @@ function isNonPublicHost(host: string): boolean {
   return false;
 }
 
+/**
+ * Strict ISO-8601 instant with an explicit offset. `Date.parse` accepts far more than this — a
+ * zone-less `2025-12-31T00:00` is read as *local* time and an RFC-2822-ish `Dec 31, 2025` parses
+ * as well, either of which moves an approval window by up to 14 hours depending on where the
+ * process runs. An approval window is an authorization boundary, so it is validated as a format
+ * before it is parsed as a time.
+ */
+const isoInstantPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
+
+/**
+ * Longest window a single approval may describe. Twenty-four hours: an approval is evidence that a
+ * named human decided one operation on one connector, and beyond a day nobody is still watching the
+ * thing they approved — a longer window is a standing grant wearing an approval's clothes. It also
+ * bounds the damage of a leaked reference to a single operational day. An operator who needs the
+ * same operation tomorrow issues a new approval, which is the review the cap exists to force.
+ */
+export const maxApprovalWindowMs = 24 * 60 * 60 * 1000;
+
 function approvalFailure(
   approval: ApprovalReference,
   request: McpCallRequest,
@@ -84,16 +119,26 @@ function approvalFailure(
     approval.approvedBy.length === 0 ||
     approval.approvedBy.length > 128 ||
     typeof approval.issuedAt !== "string" ||
-    typeof approval.expiresAt !== "string"
+    typeof approval.expiresAt !== "string" ||
+    !isoInstantPattern.test(approval.issuedAt) ||
+    !isoInstantPattern.test(approval.expiresAt)
   ) {
     return "approval_reference_invalid";
   }
   const issuedAt = Date.parse(approval.issuedAt);
   const expiresAt = Date.parse(approval.expiresAt);
   if (Number.isNaN(issuedAt) || Number.isNaN(expiresAt) || expiresAt <= issuedAt) return "approval_reference_invalid";
+  // Both ends are enforced. An approval issued in the future is not an approval that has not
+  // expired yet: it is a reference whose window was written by something other than the approval
+  // that supposedly produced it, so it is refused as invalid rather than honoured until its end.
+  // The same reason covers an over-long window, because both are defects in the reference itself
+  // rather than the ordinary, expected passage of time that `approval_reference_expired` records.
+  if (issuedAt > now.getTime()) return "approval_reference_invalid";
+  if (expiresAt - issuedAt > maxApprovalWindowMs) return "approval_reference_invalid";
   if (approval.connectorId !== request.connectorId || approval.operation !== request.operation) {
     return "approval_reference_mismatch";
   }
+  // Strict boundary: an approval is over at its expiry instant, not one millisecond after it.
   if (expiresAt <= now.getTime()) return "approval_reference_expired";
   return undefined;
 }
@@ -183,10 +228,25 @@ export function evaluateConnectorCall(
     return refuse("endpoint_url_invalid");
   }
   if (endpoint.protocol !== "https:") return refuse("endpoint_not_https");
-  const host = endpoint.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  // Userinfo in the endpoint is a static credential arriving through configuration, which
+  // `credentials.ts` and SECURITY.md say has nowhere to enter: a live client would turn
+  // `https://user:pass@host/` into a Basic auth header. It is also two readings of one URL, since
+  // the part before `@` looks like a host to a human and is not one to the parser.
+  if (endpoint.username !== "" || endpoint.password !== "") return refuse("endpoint_userinfo_not_permitted");
+  const host = canonicalizeHost(endpoint.hostname);
   if (metadataHosts.has(host)) return refuse("endpoint_host_metadata_service");
   if (isNonPublicHost(host)) return refuse("endpoint_host_not_public");
-  if (!config.allowedHosts.includes(host)) return refuse("endpoint_host_not_allowlisted");
+  // The allowlist is compared in the same canonical form as the endpoint host, so an entry that
+  // differs only in case or in a trailing root dot neither silently fails to match nor matches a
+  // host the checks above already refused. `config.ts` normalises at parse time; this is the
+  // second half of the same rule, for a configuration assembled in code rather than from an env.
+  if (!config.allowedHosts.some((entry) => canonicalizeHost(entry) === host)) {
+    return refuse("endpoint_host_not_allowlisted");
+  }
+
+  // The endpoint handed onward carries the canonical host, so the transport connects to exactly
+  // the string that was checked rather than to a variant form that differs from it.
+  endpoint.hostname = host;
 
   const operation = findOperation(binding, request.operation);
   if (!operation) return refuse("unknown_operation");

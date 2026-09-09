@@ -20,6 +20,7 @@
     "eval:scenarios": "npm run build && node dist/scripts/run-scenario-evals.js",
     "lab:simulate": "npm run build && node dist/scripts/run-lab-simulations.js",
     "lab:simulate:claude": "npm run build && node dist/scripts/run-lab-simulations.js --claude-live",
+    "connector:simulate": "npm run build && node dist/scripts/run-connector-simulation.js",
     "promotion:simulate": "npm run build && node dist/scripts/run-promotion-simulation.js",
     "acceptance:container": "bash scripts/test-container-runtime.sh",
     "acceptance:telemetry": "bash scripts/test-otel-integration.sh",

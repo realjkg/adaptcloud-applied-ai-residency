@@ -123,8 +123,8 @@ describe("MCP audit events", () => {
       approvedBy: "repository-owner",
       connectorId: "aws-mcp",
       operation: "aws.update_service_deployment",
-      issuedAt: "2025-12-31T00:00:00.000Z",
-      expiresAt: "2026-01-02T00:00:00.000Z"
+      issuedAt: "2025-12-31T18:00:00.000Z",
+      expiresAt: "2026-01-01T06:00:00.000Z"
     };
     const transport = stubTransport({ "aws-mcp/aws.update_service_deployment": { ok: true, body: { applied: true } } });
     const result = await callConnector(contextFor(transport, sink), {
@@ -202,6 +202,51 @@ describe("MCP audit events", () => {
         expect(["string", "number", "boolean", "undefined"]).toContain(typeof value);
       }
     }
+  });
+
+
+  it("records the measured size on the one refusal whose reason is the size", async () => {
+    const { events, sink } = collector();
+    const oversized = stubTransport({
+      "aws-mcp/aws.read_cost_summary": { ok: true, body: { blob: "x".repeat(500) } }
+    });
+    const config = allowedConfig({ limits: { ...defaultMcpLimits, maxResultBytes: 128 } });
+    const result = await callConnector(contextFor(oversized, sink, config), readRequest);
+    expect(result.ok).toBe(false);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.reason).toBe("result_too_large");
+    // Zero here is what an operator sees while trying to size MCP_MAX_RESULT_BYTES from audit
+    // data: exactly the calls that need a number would report none.
+    expect(events[0]?.resultBytes).toBeGreaterThan(config.limits.maxResultBytes);
+  });
+
+  it("still emits exactly one event when a seam answers off-contract", async () => {
+    for (const response of [null, { body: {} }, { ok: false }, "not a result"] as const) {
+      const { events, sink } = collector();
+      const offContract = { kind: "stub", invoke: async () => response } as unknown as McpTransport;
+      const result = await callConnector(contextFor(offContract, sink), readRequest);
+      expect(result.ok).toBe(false);
+      expect(events).toHaveLength(1);
+      expect(events[0]?.decision).toBe("refused");
+      expect(events[0]?.reason).toBe("transport_unavailable");
+    }
+
+    const { events, sink } = collector();
+    const throwing = { kind: "stub", invoke: () => undefined } as unknown as McpTransport;
+    expect((await callConnector(contextFor(throwing, sink), readRequest)).ok).toBe(false);
+    expect(events).toHaveLength(1);
+  });
+
+  it("emits one event when a resolver answers off-contract rather than throwing out of the path", async () => {
+    const { events, sink } = collector();
+    const transport = stubTransport({ "aws-mcp/aws.read_cost_summary": { ok: true, body: { usd: 12 } } });
+    const context: McpCallContext = {
+      ...contextFor(transport, sink),
+      resolver: { kind: "workload-identity", resolve: async () => null } as unknown as CredentialResolver
+    };
+    expect((await callConnector(context, readRequest)).ok).toBe(false);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.reason).toBe("credential_unavailable");
   });
 
   it("defaults to the repository event writer and never lets a broken sink change an outcome", async () => {

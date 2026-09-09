@@ -31,10 +31,14 @@ give an attacker two readings of one URL.
 
 **Control.** `evaluateConnectorCall` parses the configured `endpointUrl` with the WHATWG `URL`
 parser and takes `endpoint.hostname` — never a substring of the raw text. `hostname` excludes
-userinfo, port, path, and query by construction, so a credential-shaped prefix cannot smuggle a
-host past the check. The value is lowercased and its IPv6 brackets stripped before comparison, so
-allowlist matching is exact and case-insensitive. A URL the parser rejects is `endpoint_url_invalid`;
-a non-`https:` scheme is `endpoint_not_https`.
+port, path, and query by construction. That value then passes through `canonicalizeHost`, which
+lowercases it, strips IPv6 brackets, and removes every trailing root dot, before any check reads
+it. Allowlist entries are canonicalized on both sides of the comparison, and `config.ts` shape-checks
+each entry at parse time, so the two cannot drift. The authorized endpoint is rebuilt with the
+canonical host, so the transport connects to the string that was actually checked. A URL the parser
+rejects is `endpoint_url_invalid`; a non-`https:` scheme is `endpoint_not_https`; a URL carrying
+userinfo is `endpoint_userinfo_not_permitted`, because `https://user:pass@host/` would hand a live
+client a static credential that arrived through configuration.
 
 **Ordering.** Parsing and the SSRF class checks run *before* the allowlist, not after. The
 allowlist is operator input, and an operator can be wrong or coerced. Running the address checks
@@ -44,10 +48,23 @@ allowlist line would be sufficient for credential theft.
 
 **Where.** `src/platform/mcp/policy.ts` — `evaluateConnectorCall`, `isNonPublicHost`, `metadataHosts`.
 
+**Correction, and why it matters.** An earlier revision of this section claimed a trailing-dot FQDN
+"will simply fail to match, which fails closed". That was wrong, and wrong in the dangerous
+direction. `URL.hostname` preserves the trailing dot for names, so `metadata.google.internal.`
+matched none of the name-based rules while resolving to the same address as the undotted form.
+Measured against the policy engine before the fix, with the dotted host allowlisted:
+`metadata.google.internal.`, `localhost.`, `db.internal.` and `internal-mcp.` were all **allowed**,
+while every undotted control was refused. It failed closed only against the allowlist and failed
+open against the checks the ordering above exists to make un-re-openable. `canonicalizeHost` now
+strips the dots before any check, and a test enumerates each dotted form beside its undotted control
+so the pair can never diverge again.
+
+The lesson generalises: an ordering argument is only as good as the canonicalization underneath it.
+"Checks run first" means nothing if the two checks are reading different strings.
+
 **Residual risk.** Unicode confusables in an allowlisted name (a Cyrillic homoglyph in an operator's
-allowlist entry) are not detected; the check is exact-match, not visual. A trailing-dot FQDN
-(`example.com.`) is a distinct string from `example.com` and will simply fail to match, which fails
-closed but can confuse an operator. Neither is mitigated in code.
+allowlist entry) are not detected; the check is exact-match, not visual, and it is not mitigated in
+code. Canonicalization addresses the spellings of a name, not the choice of name.
 
 ### 2. Redirects
 

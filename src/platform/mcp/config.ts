@@ -22,6 +22,7 @@ import {
   type McpLimits
 } from "./contracts.js";
 import type { CredentialKind } from "./credentials.js";
+import { canonicalizeHost } from "./policy.js";
 
 export type CredentialMode = "denied" | CredentialKind;
 
@@ -65,6 +66,32 @@ function contentTypes(value: string | undefined, notes: string[]): readonly stri
     return undefined;
   }
   return normalized;
+}
+
+/** One DNS name: labels of letters, digits and hyphens, no scheme, port, path, userinfo, or wildcard. */
+const hostnamePattern = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/;
+
+/**
+ * Fail-closed egress allowlist.
+ *
+ * Policy compares a canonicalised endpoint host — lowercased, trailing root dot removed — so an
+ * entry written as `MCP.Example.test` or `example.test.` would silently never match, and an
+ * operator who believes a host is allowlisted while every call is refused has a control they
+ * cannot reason about. Entries are canonicalised here to the exact form policy compares. Anything
+ * that is not a bare hostname (`https://example.test`, `example.test:443`, `example.test/mcp`,
+ * `user@example.test`, `*.example.test`) is a shape the allowlist cannot express: it disables the
+ * layer, per this file's rule that an unparseable control is worse than an absent one. A wildcard
+ * entry is refused here as well as in policy, so the misconfiguration is visible at parse time.
+ */
+function hostAllowlist(value: string | undefined, notes: string[]): readonly string[] | undefined {
+  const entries = list(value).map((entry) => canonicalizeHost(entry));
+  if (entries.some((entry) => entry === "" || entry.length > 253 || !hostnamePattern.test(entry))) {
+    notes.push(
+      "MCP_ALLOWED_HOSTS must be bare hostnames with no scheme, port, path, or wildcard; the connector layer stays disabled"
+    );
+    return undefined;
+  }
+  return entries;
 }
 
 function bindingFor(
@@ -125,7 +152,10 @@ export function mcpConfigFromEnvironment(environment: NodeJS.ProcessEnv = proces
     return { config: disabledMcpLayerConfig, credentialMode, notes };
   }
 
-  const allowedHosts = list(environment.MCP_ALLOWED_HOSTS);
+  const allowedHosts = hostAllowlist(environment.MCP_ALLOWED_HOSTS, notes);
+  if (allowedHosts === undefined) {
+    return { config: disabledMcpLayerConfig, credentialMode, notes };
+  }
   if (allowedHosts.length === 0) {
     notes.push("MCP_ALLOWED_HOSTS is empty; every endpoint is refused by the egress allowlist");
   }

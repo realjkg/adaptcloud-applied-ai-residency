@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { mcpConfigFromEnvironment } from "../src/platform/mcp/config.js";
 import { awsReadOnlyOperations, defaultMcpLimits } from "../src/platform/mcp/contracts.js";
+import { evaluateConnectorCall } from "../src/platform/mcp/policy.js";
+import { runtimeConfigFromEnvironment } from "../src/platform/runtime.js";
 
 const enabled = {
   MCP_CONNECTORS_ENABLED: "true",
@@ -101,6 +103,51 @@ describe("MCP operator configuration", () => {
     const result = mcpConfigFromEnvironment({ ...enabled, MCP_ALLOWED_HOSTS: "" });
     expect(result.config.allowedHosts).toEqual([]);
     expect(result.notes.join(" ")).toContain("every endpoint is refused");
+  });
+
+
+  it("normalizes the egress allowlist to the form policy compares", () => {
+    // Policy lowercases the endpoint host and strips a trailing root dot. An entry that keeps
+    // either would silently never match, which reads to an operator as a host that is allowlisted
+    // and refused at the same time.
+    const result = mcpConfigFromEnvironment({
+      ...enabled,
+      MCP_ALLOWED_HOSTS: "MCP.Example-Cloud.test, other.example.test. ,Third.Example.TEST"
+    });
+    expect(result.config.enabled).toBe(true);
+    expect(result.config.allowedHosts).toEqual(["mcp.example-cloud.test", "other.example.test", "third.example.test"]);
+  });
+
+  it("lets a normalized allowlist entry actually authorize the endpoint it names", () => {
+    const result = mcpConfigFromEnvironment({
+      ...enabled,
+      MCP_ALLOWED_HOSTS: "MCP.Example-Cloud.test.",
+      MCP_AWS_ENDPOINT_URL: "https://mcp.example-cloud.test/aws"
+    });
+    const decision = evaluateConnectorCall(
+      result.config,
+      { connectorId: "aws-mcp", operation: "aws.read_cost_summary", input: {} },
+      runtimeConfigFromEnvironment({}),
+      new Date("2026-01-01T00:00:00.000Z")
+    );
+    expect(decision.ok).toBe(true);
+  });
+
+  it("disables the layer rather than carrying an allowlist entry it cannot compare", () => {
+    for (const bad of [
+      "https://mcp.example-cloud.test",
+      "mcp.example-cloud.test:443",
+      "mcp.example-cloud.test/aws",
+      "user@mcp.example-cloud.test",
+      "*.example-cloud.test",
+      "mcp..example-cloud.test",
+      "-mcp.example-cloud.test",
+      "[::1]"
+    ]) {
+      const result = mcpConfigFromEnvironment({ ...enabled, MCP_ALLOWED_HOSTS: bad });
+      expect(result.config.enabled, `${bad} must disable the layer`).toBe(false);
+      expect(result.notes.join(" ")).toContain("MCP_ALLOWED_HOSTS");
+    }
   });
 
   it("never accepts a credential through configuration", () => {
