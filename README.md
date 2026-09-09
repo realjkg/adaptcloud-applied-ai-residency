@@ -59,7 +59,7 @@ npm run dev          # sample API on 3000
 npm run console      # console on 3300, proxying the API
 ```
 
-`npm run test:regression` runs only the tests that intersect the current change through the import graph, and explains why it selected each one. `docs/AGENT_PATTERNS.md` covers the agent architectures available here, and `docs/MCP_CONNECTORS.md` the cloud connector layer.
+`npm run connector:simulate` drives the whole connector inventory through the real call path against the deterministic stub and reports refusal-reason coverage. `npm run test:regression` runs only the tests that intersect the current change through the import graph, and explains why it selected each one. `docs/AGENT_PATTERNS.md` covers the agent architectures available here, and `docs/MCP_CONNECTORS.md` the cloud connector layer.
 
 The workflow defaults to local deterministic mode. To request a Claude recommendation locally, copy `.env.example` to `.env`, supply a model and pricing approved by the fork owner, place the API key in `.env`, and run `npm run dev:env`. The ordinary `npm run dev` command does not load `.env`, and tests never require a key.
 

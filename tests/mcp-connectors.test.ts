@@ -18,7 +18,7 @@ import {
   type McpPolicyDecision,
   type McpRefusalReason
 } from "../src/platform/mcp/contracts.js";
-import { evaluateConnectorCall } from "../src/platform/mcp/policy.js";
+import { evaluateConnectorCall, maxApprovalWindowMs } from "../src/platform/mcp/policy.js";
 import {
   deniedResolver,
   redactSecrets,
@@ -27,7 +27,14 @@ import {
   type CredentialResolver
 } from "../src/platform/mcp/credentials.js";
 import { stubTransport, type McpTransport } from "../src/platform/mcp/transport.js";
-import { callConnector, createConnectorRegistry, createMcpSession } from "../src/platform/mcp/registry.js";
+import {
+  attemptBudgetMs,
+  callBudgetMs,
+  callConnector,
+  createConnectorRegistry,
+  createMcpSession,
+  maxTotalCallMs
+} from "../src/platform/mcp/registry.js";
 
 const now = new Date("2026-01-01T00:00:00.000Z");
 const awsHost = "mcp.aws.example.com";
@@ -98,8 +105,8 @@ const approval: ApprovalReference = {
   approvedBy: "repository-owner",
   connectorId: "aws-mcp",
   operation: "aws.update_service_deployment",
-  issuedAt: "2025-12-31T00:00:00.000Z",
-  expiresAt: "2026-01-02T00:00:00.000Z"
+  issuedAt: "2025-12-31T18:00:00.000Z",
+  expiresAt: "2026-01-01T06:00:00.000Z"
 };
 
 function optedInConsequentialConfig(): McpLayerConfig {
@@ -290,7 +297,7 @@ describe("consequential operations", () => {
       refusalOf(
         evaluateConnectorCall(
           config,
-          { ...writeRequest, approval: { ...approval, expiresAt: "2025-12-31T12:00:00.000Z" } },
+          { ...writeRequest, approval: { ...approval, expiresAt: "2025-12-31T20:00:00.000Z" } },
           development,
           now
         )
@@ -629,6 +636,269 @@ describe("wire-level limits", () => {
     expect((await first).ok).toBe(true);
     // The slot is released, so the next call is admitted.
     expect((await callConnector(context, readRequest)).ok).toBe(true);
+  });
+});
+
+describe("host canonicalization", () => {
+  // The dotted and undotted forms of a name resolve to the same address, so they must decide the
+  // same way. Each control is listed beside its variants: if a variant ever decides differently
+  // from its undotted control the difference is the bypass, whatever the reason happens to be.
+  const controls: readonly (readonly [string, McpRefusalReason])[] = [
+    ["metadata.google.internal", "endpoint_host_metadata_service"],
+    ["169.254.169.254", "endpoint_host_metadata_service"],
+    ["localhost", "endpoint_host_not_public"],
+    ["db.internal", "endpoint_host_not_public"],
+    ["internal-mcp", "endpoint_host_not_public"],
+    ["127.0.0.1", "endpoint_host_not_public"],
+    ["10.0.0.7", "endpoint_host_not_public"]
+  ];
+
+  it("decides a trailing-dot host exactly as it decides the undotted control, even when the operator allowlists the dotted form", () => {
+    for (const [control, expected] of controls) {
+      for (const variant of [control, `${control}.`, `${control}..`, `${control.toUpperCase()}.`]) {
+        // The dotted spelling is on the allowlist and the undotted one is not, which is the
+        // arrangement that made every name-based rule miss.
+        const config = allowedConfig({ allowedHosts: [variant] });
+        const aws = config.connectors[0];
+        if (!aws) throw new Error("fixture missing aws binding");
+        const poisoned: McpLayerConfig = { ...config, connectors: [{ ...aws, endpointUrl: `https://${variant}/mcp` }] };
+        expect(refusalOf(evaluateConnectorCall(poisoned, readRequest, development, now)), `${variant}`).toBe(expected);
+      }
+    }
+  });
+
+  it("matches an allowlisted public host whichever canonical-equivalent spelling either side uses", () => {
+    for (const [endpointHost, allowlistEntry] of [
+      [`${awsHost}.`, awsHost],
+      [awsHost, `${awsHost}.`],
+      [awsHost.toUpperCase(), awsHost],
+      [`${awsHost}.`, `${awsHost.toUpperCase()}.`]
+    ] as const) {
+      const config = allowedConfig({ allowedHosts: [allowlistEntry] });
+      const aws = config.connectors[0];
+      if (!aws) throw new Error("fixture missing aws binding");
+      const decision = evaluateConnectorCall(
+        { ...config, connectors: [{ ...aws, endpointUrl: `https://${endpointHost}/mcp` }] },
+        readRequest,
+        development,
+        now
+      );
+      expect(decision.ok, `${endpointHost} against ${allowlistEntry}`).toBe(true);
+      if (!decision.ok) throw new Error("expected allow");
+      // The transport is handed the canonical host, so it connects to the string that was checked.
+      expect(decision.allowed.endpointHost).toBe(awsHost);
+      expect(decision.allowed.endpointUrl).toBe(`https://${awsHost}/mcp`);
+    }
+  });
+
+  it("refuses an endpoint carrying userinfo, because configuration is not a credential path", () => {
+    for (const endpointUrl of [
+      `https://user:pass@${awsHost}/mcp`,
+      `https://user@${awsHost}/mcp`,
+      `https://:pass@${awsHost}/mcp`
+    ]) {
+      const result = evaluateConnectorCall(withAwsBinding({ endpointUrl }), readRequest, development, now);
+      expect(refusalOf(result), endpointUrl).toBe("endpoint_userinfo_not_permitted");
+      // The refusal never echoes the material it refused.
+      expect(JSON.stringify(result)).not.toContain("pass");
+    }
+  });
+
+  it("never hands userinfo to the transport on an otherwise allowlisted host", async () => {
+    const transport = stubTransport({ "aws-mcp/aws.read_cost_summary": { ok: true, body: { usd: 12 } } });
+    const config = withAwsBinding({ endpointUrl: `https://user:pass@${awsHost}/mcp` });
+    expect(refusalOf(await callConnector(contextFor(transport, config), readRequest))).toBe(
+      "endpoint_userinfo_not_permitted"
+    );
+  });
+});
+
+describe("approval windows", () => {
+  const optedIn = optedInConsequentialConfig();
+  const evaluate = (overrides: Partial<ApprovalReference>) =>
+    evaluateConnectorCall(optedIn, { ...writeRequest, approval: { ...approval, ...overrides } }, development, now);
+
+  it("refuses an approval whose issuedAt has not happened yet", () => {
+    expect(refusalOf(evaluate({ issuedAt: "3000-01-01T00:00:00.000Z", expiresAt: "3000-01-02T00:00:00.000Z" }))).toBe(
+      "approval_reference_invalid"
+    );
+    // One second into the future is still the future: there is no grace band to aim at.
+    expect(refusalOf(evaluate({ issuedAt: "2026-01-01T00:00:01.000Z", expiresAt: "2026-01-01T06:00:00.000Z" }))).toBe(
+      "approval_reference_invalid"
+    );
+  });
+
+  it("caps how long a single approval may stay valid", () => {
+    const issuedAt = "2025-12-31T18:00:00.000Z";
+    const withinCap = new Date(Date.parse(issuedAt) + maxApprovalWindowMs).toISOString();
+    const overCap = new Date(Date.parse(issuedAt) + maxApprovalWindowMs + 1_000).toISOString();
+    expect(evaluate({ issuedAt, expiresAt: withinCap }).ok).toBe(true);
+    expect(refusalOf(evaluate({ issuedAt, expiresAt: overCap }))).toBe("approval_reference_invalid");
+    expect(refusalOf(evaluate({ issuedAt, expiresAt: "2036-01-01T00:00:00.000Z" }))).toBe("approval_reference_invalid");
+    // The cap is short enough that an approval cannot outlive the day it was given on.
+    expect(maxApprovalWindowMs).toBeLessThanOrEqual(24 * 60 * 60 * 1000);
+  });
+
+  it("requires an ISO-8601 instant with an explicit offset rather than whatever Date.parse accepts", () => {
+    for (const issuedAt of [
+      "Dec 31, 2025",
+      "2025-12-31",
+      "2025-12-31T18:00:00",
+      "2025-12-31 18:00:00Z",
+      "12/31/2025 18:00",
+      "now"
+    ]) {
+      expect(refusalOf(evaluate({ issuedAt })), issuedAt).toBe("approval_reference_invalid");
+    }
+    for (const expiresAt of ["2026-01-01T06:00", "January 1, 2026", "2026-01-01T06:00:00+0000"]) {
+      expect(refusalOf(evaluate({ expiresAt })), expiresAt).toBe("approval_reference_invalid");
+    }
+    // An offset that is not UTC is a legitimate instant and is accepted.
+    expect(evaluate({ issuedAt: "2025-12-31T13:00:00-05:00", expiresAt: "2026-01-01T01:00:00-05:00" }).ok).toBe(true);
+  });
+
+  it("keeps the expiry boundary strict and the valid window allowed", () => {
+    expect(refusalOf(evaluate({ expiresAt: "2026-01-01T00:00:00.000Z" }))).toBe("approval_reference_expired");
+    expect(evaluate({ expiresAt: "2026-01-01T00:00:00.001Z" }).ok).toBe(true);
+  });
+});
+
+describe("seams that must never throw", () => {
+  const offContract: readonly (readonly [string, unknown])[] = [
+    ["null", null],
+    ["undefined", undefined],
+    ["a string", "ok"],
+    ["a missing ok field", { body: { usd: 12 } }],
+    ["ok: false with no reason", { ok: false }],
+    ["ok: false with an unknown reason", { ok: false, reason: "everything_is_fine" }],
+    ["ok: 'true' as a string", { ok: "true", body: {} }]
+  ];
+
+  it("turns an off-contract transport result into a refusal instead of an exception", async () => {
+    for (const [label, response] of offContract) {
+      const transport = {
+        kind: "stub",
+        invoke: async () => response
+      } as unknown as McpTransport;
+      const result = await callConnector(contextFor(transport), readRequest);
+      expect(refusalOf(result), label).toBe("transport_unavailable");
+    }
+  });
+
+  it("turns an off-contract credential resolution into the same refusal a denial produces", async () => {
+    const transport = stubTransport({ "aws-mcp/aws.read_cost_summary": { ok: true, body: { usd: 12 } } });
+    for (const [label, resolution] of [
+      ["null", null],
+      ["a missing ok field", { credential: { reveal: () => "s" } }],
+      ["ok without a credential", { ok: true }],
+      ["a credential that cannot be revealed", { ok: true, credential: {} }]
+    ] as const) {
+      const resolver = { kind: "workload-identity", resolve: async () => resolution } as unknown as CredentialResolver;
+      const result = await callConnector(contextFor(transport, allowedConfig(), resolver), readRequest);
+      expect(refusalOf(result), label).toBe("credential_unavailable");
+    }
+  });
+
+  it("refuses a non-string content type rather than calling split on it", async () => {
+    // `Response.headers.get("content-type")` is `string | null`: the first live transport that
+    // forwards it directly hands this seam a null.
+    for (const contentType of [null, 42, {}, []]) {
+      const transport = {
+        kind: "stub",
+        invoke: async () => ({ ok: true, body: { usd: 12 }, contentType })
+      } as unknown as McpTransport;
+      expect(refusalOf(await callConnector(contextFor(transport), readRequest))).toBe("content_type_not_allowed");
+    }
+  });
+});
+
+describe("cancellation and bounded wall clock", () => {
+  it("aborts the transport when the call timeout wins", async () => {
+    let aborted = false;
+    let signalSeen = false;
+    const hanging: McpTransport = {
+      kind: "stub",
+      invoke: async (request) =>
+        await new Promise((resolve) => {
+          signalSeen = request.signal instanceof AbortSignal;
+          request.signal.addEventListener("abort", () => {
+            aborted = true;
+            resolve({ ok: false, reason: "transport_unavailable" });
+          });
+        })
+    };
+    const config = allowedConfig({ limits: { ...defaultMcpLimits, callTimeoutMs: 10, maxAttempts: 1 } });
+    expect(refusalOf(await callConnector(contextFor(hanging, config), readRequest))).toBe("transport_timeout");
+    expect(signalSeen).toBe(true);
+    expect(aborted).toBe(true);
+  });
+
+  it("holds the concurrency slot until the transport settles, so the cap bounds sockets and not frames", async () => {
+    let invocations = 0;
+    let release: (() => void) | undefined;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    // Deliberately ignores the abort signal, which is exactly the transport the cap must survive.
+    const stubborn: McpTransport = {
+      kind: "stub",
+      invoke: async () => {
+        invocations += 1;
+        await blocked;
+        return { ok: true, body: { usd: 12 } };
+      }
+    };
+    const config = allowedConfig({ limits: { ...defaultMcpLimits, maxConcurrentCalls: 1, maxAttempts: 1, callTimeoutMs: 5 } });
+    const context = contextFor(stubborn, config);
+    // The first call is told it timed out while its work is still running.
+    expect(refusalOf(await callConnector(context, readRequest))).toBe("transport_timeout");
+    expect(refusalOf(await callConnector(context, readRequest))).toBe("concurrency_limit_reached");
+    expect(refusalOf(await callConnector(context, readRequest))).toBe("concurrency_limit_reached");
+    expect(invocations).toBe(1);
+    release?.();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    // Once the real work settles the slot comes back.
+    expect((await callConnector(context, readRequest)).ok).toBe(true);
+    expect(invocations).toBe(2);
+  });
+
+  it("bounds a whole call by one deadline instead of by attempts times the timeout", () => {
+    // Three attempts at the maximum per-call timeout would be 90 seconds, outliving the runtime's
+    // own 60-second REQUEST_TIMEOUT_MS ceiling.
+    expect(callBudgetMs(3, 30_000)).toBe(maxTotalCallMs);
+    expect(maxTotalCallMs).toBeLessThanOrEqual(60_000);
+    expect(callBudgetMs(2, 5_000)).toBe(10_000);
+    expect(callBudgetMs(1, 30_000)).toBe(30_000);
+  });
+
+  it("gives each attempt only the time that is left in the shared budget", () => {
+    // Without a shared deadline the loop's bound is attempts times the timeout; with it, an
+    // attempt that starts late gets only what remains, and one that starts too late never runs.
+    expect(attemptBudgetMs(0, 3, 30_000)).toBe(30_000);
+    expect(attemptBudgetMs(25_000, 3, 30_000)).toBe(5_000);
+    expect(attemptBudgetMs(30_000, 3, 30_000)).toBe(0);
+    expect(attemptBudgetMs(40_000, 3, 30_000)).toBeLessThanOrEqual(0);
+    expect(attemptBudgetMs(0, 2, 5_000)).toBe(5_000);
+    expect(attemptBudgetMs(7_000, 2, 5_000)).toBe(3_000);
+  });
+
+  it("never lets a retried call outlive its budget in wall-clock time", async () => {
+    const seen: number[] = [];
+    const hanging: McpTransport = {
+      kind: "stub",
+      invoke: async (request) => {
+        seen.push(request.timeoutMs);
+        return await new Promise((resolve) => {
+          request.signal.addEventListener("abort", () => resolve({ ok: false, reason: "transport_unavailable" }));
+        });
+      }
+    };
+    const config = allowedConfig({ limits: { ...defaultMcpLimits, callTimeoutMs: 60, maxAttempts: 3 } });
+    const startedAt = Date.now();
+    expect(refusalOf(await callConnector(contextFor(hanging, config), readRequest))).toBe("transport_timeout");
+    expect(Date.now() - startedAt).toBeLessThanOrEqual(callBudgetMs(3, 60) + 200);
+    expect(seen.length).toBeLessThanOrEqual(3);
+    for (const budget of seen) expect(budget).toBeLessThanOrEqual(60);
   });
 });
 

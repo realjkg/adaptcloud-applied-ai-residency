@@ -22,6 +22,17 @@ export interface McpTransportRequest {
   readonly input: Readonly<Record<string, unknown>>;
   readonly timeoutMs: number;
   readonly attempt: number;
+  /**
+   * Cancellation for this attempt. `registry.ts` aborts it when the call timeout wins, and a
+   * transport MUST honour it: pass it into the HTTP client's per-request
+   * options as its cancellation signal, stop reading the body, and destroy the socket. A transport that ignores the
+   * signal turns the timeout into a bookkeeping fiction — the caller sees `transport_timeout`
+   * while the request is still in flight, so the concurrency cap would bound frames rather than
+   * sockets and a "cancelled" call would still reach the provider. `registry.ts` therefore holds
+   * the concurrency slot until the returned promise settles, which means an unresponsive
+   * transport consumes its slot for as long as it really runs.
+   */
+  readonly signal: AbortSignal;
   /** Opaque: the transport is the only component permitted to call `reveal()`. */
   readonly credential: ShortLivedCredential;
 }

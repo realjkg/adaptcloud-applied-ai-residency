@@ -44,14 +44,14 @@ request shape, connector, limits, wildcard, egress, operation, approval.
 | Production gating | `production_requires_managed_secrets`, `production_requires_gateway_auth` |
 | Request shape and limits | `request_invalid`, `limits_invalid` |
 | No wildcards anywhere | `wildcard_not_permitted` |
-| Egress allowlist | `endpoint_url_invalid`, `endpoint_not_https`, `endpoint_host_metadata_service`, `endpoint_host_not_public`, `endpoint_host_not_allowlisted` |
+| Egress allowlist | `endpoint_url_invalid`, `endpoint_not_https`, `endpoint_userinfo_not_permitted`, `endpoint_host_metadata_service`, `endpoint_host_not_public`, `endpoint_host_not_allowlisted` |
 | Operation allowlist | `unknown_operation`, `operation_not_allowlisted` |
 | Human approval | `consequential_operation_requires_approval`, `consequential_operation_not_opted_in`, `approval_reference_invalid`, `approval_reference_mismatch`, `approval_reference_expired` |
 
 The call path adds runtime refusals: `call_limit_reached`, `concurrency_limit_reached`,
 `credential_unavailable`, `transport_unavailable`, `transport_timeout`, `transport_refused`,
 `redirect_not_permitted`, `content_type_not_allowed`, `result_too_large`,
-`result_not_serializable`. Thirty reasons in total.
+`result_not_serializable`. Thirty-one reasons in total.
 
 Every reason has a test, and the suite fails if a new reason is added without one.
 
@@ -61,6 +61,23 @@ Three decisions inside that list are worth understanding rather than just readin
 operator explicitly allowlists it. The allowlist can narrow the permitted set, never re-open it.
 Server-side request forgery to the instance metadata endpoint is the standard way a connector turns
 into a credential leak, so it is not left to operator discipline.
+
+The host is canonicalized before any of those checks: lowercased, IPv6 brackets stripped, and every
+trailing root dot removed. That last step is not cosmetic. `metadata.google.internal.` and
+`metadata.google.internal` resolve to the same place, but only the second matched a name-based rule
+before canonicalization existed, so a dotted spelling walked past the metadata guard, the loopback
+rule, and the bare-label rule. Allowlist entries are canonicalized on both sides of the comparison,
+so a dotted entry cannot re-open a blocked address either. `npm run connector:simulate` proves the
+ordering rather than asserting it: every egress case allowlists the host it expects to be refused.
+
+**An endpoint carrying userinfo is refused.** `https://user:pass@host/` parses to an allowlisted
+host but a live client would send those credentials as Basic auth, which is a static secret entering
+through configuration — the one path `credentials.ts` exists to prevent.
+
+**An approval is bounded at both ends.** Timestamps must be strict ISO-8601 with an offset, an
+approval issued in the future is refused, and the window cannot exceed 24 hours. A zone-less
+timestamp was previously read as local time, which could move the window by up to fourteen hours
+from what the approver saw.
 
 **A wildcard anywhere invalidates the binding.** Not just a bare `*`: `aws.read_*` is refused too.
 A prefix wildcard is how an allowlist silently grows to include an operation nobody reviewed.
@@ -123,6 +140,7 @@ All off in every shipped reference profile. Enabling an egress path is an owner 
 | `MCP_MAX_CALLS_PER_EXCHANGE` | 1–16, default 4. |
 | `MCP_MAX_RESULT_BYTES` | 1–262144, default 16384. |
 | `MCP_MAX_REDIRECTS` | 0–2, default 0. Zero means do not follow. |
+| `MCP_ALLOWED_HOSTS` entries | Canonicalized and shape-checked at parse time. A scheme, port, path, userinfo, wildcard, empty label, or IP literal disables the layer. |
 | `MCP_ALLOWED_CONTENT_TYPES` | Up to 8 exact `type/subtype` media types, default `application/json`. No wildcard, no parameters. |
 | `MCP_MAX_CONCURRENT_CALLS` | 1–8, default 2. Bounds calls in flight for one exchange. |
 | `MCP_CREDENTIAL_MODE` | `denied`, `workload-identity`, or `oidc-exchange`. Default `denied`. Never a credential value. |
@@ -146,6 +164,28 @@ recorded, since on an invalid request they come from the caller rather than from
 
 A sink failure never changes a call outcome. The call already happened either way, and an
 observability fault must not become an authorization result.
+
+## Simulating the connector layer
+
+```bash
+npm run connector:simulate
+npm run connector:simulate -- --connector=aws-mcp --json
+```
+
+The harness drives the whole declared inventory through the real call path against the deterministic
+stub: every read-only operation as an allowed call, every consequential operation as a refusal, plus
+transport faults, wire faults, egress faults, configuration faults, bounds, production gating,
+credential failure, and adversarial bodies carrying instruction-like and credential-like text. Every
+case asserts two invariants whatever the outcome: exactly one audit event, and no canary from the
+input or the body anywhere in it.
+
+It reports refusal-reason coverage, and that number is the honest measure of a run — a high pass
+count over a narrow set of cases proves little. The case list is derived from the exported connector
+descriptors, so a new operation is covered without editing the harness.
+
+What it does not establish: anything about TLS, DNS resolution or rebinding, real redirect behaviour,
+proxies, request smuggling, or partner outages. Those remain contractual until a transport exists,
+and no number of green simulation runs changes that.
 
 ## Results are untrusted
 
