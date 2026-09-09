@@ -1,7 +1,12 @@
 import { runLabSimulation, type CloudTarget } from "../labs/simulator.js";
+import { commercialModule } from "./commercial.js";
 import { parseScenarioRequest, type ScenarioEnvelope, type ScenarioName } from "./contracts.js";
+import { insuranceModule } from "./insurance.js";
+import { paymentsModule } from "./payments.js";
 
-export const scenarioNames = ["commercial", "payments", "insurance"] as const satisfies readonly ScenarioName[];
+export const scenarioModules = [commercialModule, paymentsModule, insuranceModule] as const;
+
+export const scenarioNames: readonly ScenarioName[] = scenarioModules.map((module) => module.name);
 
 export function isScenarioName(value: unknown): value is ScenarioName {
   return typeof value === "string" && (scenarioNames as readonly string[]).includes(value);

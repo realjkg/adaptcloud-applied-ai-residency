@@ -15,6 +15,7 @@
     "dev:env": "npm run build && node --env-file=.env dist/src/bootstrap.js",
     "agent": "npm run build && node dist/src/index.js",
     "scenario": "npm run build && node dist/src/scenario-cli.js",
+    "console": "node scripts/serve-console.mjs",
     "eval": "npm run build && node dist/scripts/run-evals.js && node dist/scripts/run-scenario-evals.js",
     "eval:scenarios": "npm run build && node dist/scripts/run-scenario-evals.js",
     "lab:simulate": "npm run build && node dist/scripts/run-lab-simulations.js",
@@ -37,6 +38,7 @@
     "skills:gates": "node .claude/skills/residency-gates/scripts/run-gates.mjs",
     "test": "npm run test:unit",
     "test:unit": "vitest run",
+    "test:regression": "node scripts/run-regression-gate.ts",
     "test:watch": "vitest",
     "smoke:deployment": "node scripts/check-static-deployment.mjs"
   },

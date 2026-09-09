@@ -1,11 +1,8 @@
 import type { ControlFinding, CostEstimate } from "../agent/contracts.js";
-import type {
-  CloudTarget,
-  CommercialLabInput,
-  InsuranceLabInput,
-  PaymentEvent,
-  PaymentsLabInput
-} from "../labs/simulator.js";
+import type { CloudTarget } from "../labs/simulator.js";
+import { commercialModule, type CommercialLabInput } from "./commercial.js";
+import { insuranceModule, type InsuranceLabInput } from "./insurance.js";
+import { paymentsModule, type PaymentsLabInput } from "./payments.js";
 
 export type ScenarioName = "commercial" | "payments" | "insurance";
 
@@ -40,18 +37,51 @@ export interface ScenarioEnvelope {
   };
 }
 
+export interface ScenarioPolicyResult {
+  findings: ControlFinding[];
+  domain: Record<string, unknown>;
+}
+
+/** Starting service-level assumptions from the overlay table in docs/WELL_ARCHITECTED.md. */
+export interface ScenarioOperatingEnvelope {
+  availabilityTarget: string;
+  recoveryTimeObjective: string;
+  recoveryPointObjective: string;
+  failurePosture: string;
+  costUnit: string;
+  retentionPosture: string;
+}
+
+/** One scenario's whole surface: its parser, its deterministic policy, and what it may refuse. */
+export interface ScenarioModule<TName extends ScenarioName, TRequest> {
+  readonly name: TName;
+  readonly parse: (record: Record<string, unknown>) => TRequest;
+  readonly policy: (input: TRequest) => ScenarioPolicyResult;
+  readonly findingIds: readonly string[];
+  readonly envelope: ScenarioOperatingEnvelope;
+}
+
 // Bounds keep an untrusted payload from turning into unbounded deterministic work.
 const maxStringLength = 2_000;
 const maxArrayLength = 200;
 
-const paymentEventTypes = new Set<PaymentEvent["type"]>(["authorization", "capture", "settlement", "reversal", "refund"]);
+export const criticalFinding = (id: string, message: string, remediation: string): ControlFinding => ({
+  id,
+  severity: "critical",
+  message,
+  remediation
+});
 
-function asRecord(value: unknown, label: string): Record<string, unknown> {
+export function assertSafeInteger(value: number, name: string): void {
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${name} must be a non-negative safe integer`);
+}
+
+export function asRecord(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
   return value as Record<string, unknown>;
 }
 
-function requireString(record: Record<string, unknown>, field: string): string {
+export function requireString(record: Record<string, unknown>, field: string): string {
   const value = record[field];
   if (typeof value !== "string" || value.trim().length === 0 || value.length > maxStringLength) {
     throw new Error(`${field} must be a non-empty string of at most ${maxStringLength} characters`);
@@ -59,13 +89,13 @@ function requireString(record: Record<string, unknown>, field: string): string {
   return value;
 }
 
-function requireBoolean(record: Record<string, unknown>, field: string): boolean {
+export function requireBoolean(record: Record<string, unknown>, field: string): boolean {
   const value = record[field];
   if (typeof value !== "boolean") throw new Error(`${field} must be an explicit boolean`);
   return value;
 }
 
-function requireFiniteNonNegative(record: Record<string, unknown>, field: string): number {
+export function requireFiniteNonNegative(record: Record<string, unknown>, field: string): number {
   const value = record[field];
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
     throw new Error(`${field} must be a finite non-negative number`);
@@ -73,7 +103,7 @@ function requireFiniteNonNegative(record: Record<string, unknown>, field: string
   return value;
 }
 
-function requireSafeInteger(record: Record<string, unknown>, field: string): number {
+export function requireSafeInteger(record: Record<string, unknown>, field: string): number {
   const value = record[field];
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
     throw new Error(`${field} must be a non-negative safe integer`);
@@ -81,7 +111,7 @@ function requireSafeInteger(record: Record<string, unknown>, field: string): num
   return value;
 }
 
-function requireArray(record: Record<string, unknown>, field: string): unknown[] {
+export function requireArray(record: Record<string, unknown>, field: string): unknown[] {
   const value = record[field];
   if (!Array.isArray(value) || value.length > maxArrayLength) {
     throw new Error(`${field} must be an array of at most ${maxArrayLength} items`);
@@ -89,77 +119,13 @@ function requireArray(record: Record<string, unknown>, field: string): unknown[]
   return value;
 }
 
-function requireStringArray(record: Record<string, unknown>, field: string): string[] {
+export function requireStringArray(record: Record<string, unknown>, field: string): string[] {
   return requireArray(record, field).map((item, index) => {
     if (typeof item !== "string" || item.trim().length === 0 || item.length > maxStringLength) {
       throw new Error(`${field}[${index}] must be a non-empty string of at most ${maxStringLength} characters`);
     }
     return item;
   });
-}
-
-function parseCommercial(record: Record<string, unknown>): CommercialScenarioRequest {
-  return {
-    scenario: "commercial",
-    humanApproval: requireBoolean(record, "humanApproval"),
-    assetId: requireString(record, "assetId"),
-    maintenanceObservations: requireStringArray(record, "maintenanceObservations"),
-    downtimeHours: requireFiniteNonNegative(record, "downtimeHours"),
-    hourlyDowntimeCostMinor: requireSafeInteger(record, "hourlyDowntimeCostMinor"),
-    laborHours: requireFiniteNonNegative(record, "laborHours"),
-    laborRateMinor: requireSafeInteger(record, "laborRateMinor"),
-    materialCostMinor: requireSafeInteger(record, "materialCostMinor"),
-    currency: requireString(record, "currency"),
-    requestedActions: requireStringArray(record, "requestedActions")
-  };
-}
-
-function parsePaymentEvent(value: unknown, index: number): PaymentEvent {
-  const event = asRecord(value, `events[${index}]`);
-  const type = event.type;
-  if (typeof type !== "string" || !paymentEventTypes.has(type as PaymentEvent["type"])) {
-    throw new Error(`events[${index}].type must be a supported payment event type`);
-  }
-  return {
-    type: type as PaymentEvent["type"],
-    amountMinor: requireSafeInteger(event, "amountMinor"),
-    currency: requireString(event, "currency"),
-    idempotencyKey: requireString(event, "idempotencyKey"),
-    sourceId: requireString(event, "sourceId")
-  };
-}
-
-function parsePayments(record: Record<string, unknown>): PaymentsScenarioRequest {
-  const events = requireArray(record, "events");
-  if (events.length === 0) throw new Error("events must contain at least one payment event");
-  return {
-    scenario: "payments",
-    humanApproval: requireBoolean(record, "humanApproval"),
-    transactionId: requireString(record, "transactionId"),
-    currency: requireString(record, "currency"),
-    events: events.map(parsePaymentEvent)
-  };
-}
-
-function parseInsurance(record: Record<string, unknown>): InsuranceScenarioRequest {
-  const documents = requireArray(record, "documents").map((value, index) => {
-    const document = asRecord(value, `documents[${index}]`);
-    return { type: requireString(document, "type"), sourceId: requireString(document, "sourceId") };
-  });
-  const facts = requireArray(record, "facts").map((value, index) => {
-    const fact = asRecord(value, `facts[${index}]`);
-    return { name: requireString(fact, "name"), value: requireString(fact, "value"), sourceId: requireString(fact, "sourceId") };
-  });
-  return {
-    scenario: "insurance",
-    humanApproval: requireBoolean(record, "humanApproval"),
-    claimId: requireString(record, "claimId"),
-    lossType: requireString(record, "lossType"),
-    narrative: requireString(record, "narrative"),
-    requiredDocuments: requireStringArray(record, "requiredDocuments"),
-    documents,
-    facts
-  };
 }
 
 export function parseScenarioRequest(scenario: ScenarioName, value: unknown): ScenarioRequest {
@@ -172,7 +138,8 @@ export function parseScenarioRequest(scenario: ScenarioName, value: unknown): Sc
     const safe = declared === "commercial" || declared === "payments" || declared === "insurance" ? `"${declared}"` : "an unsupported scenario";
     throw new Error(`scenario mismatch: payload declares ${safe} but the "${scenario}" scenario was requested`);
   }
-  if (scenario === "commercial") return parseCommercial(record);
-  if (scenario === "payments") return parsePayments(record);
-  return parseInsurance(record);
+  // Resolved inside the call so the module imports stay a cycle-safe lazy reference.
+  if (scenario === "commercial") return commercialModule.parse(record);
+  if (scenario === "payments") return paymentsModule.parse(record);
+  return insuranceModule.parse(record);
 }

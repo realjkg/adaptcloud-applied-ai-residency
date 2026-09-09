@@ -110,4 +110,60 @@ describe("bounded Claude adapter", () => {
     expect(toolResult?.is_error).toBe(true);
     expect(toolResult?.content).toContain("refused");
   });
+
+  it("handles the response shapes the Messages API actually returns", async () => {
+    process.env.ANTHROPIC_API_KEY = "synthetic-test-key";
+    process.env.ANTHROPIC_MODEL = "synthetic-model";
+    // Recorded shapes, not invented ones: a normal completion, a truncated completion, and a
+    // turn that mixes narration with a tool request. The live provider is never called in tests,
+    // so these fixtures are the only thing standing between the adapter and a shape surprise.
+    const endTurn = {
+      id: "msg_01", type: "message", role: "assistant", model: "synthetic-model",
+      content: [{ type: "text", text: "Bounded architecture recommendation." }],
+      stop_reason: "end_turn", stop_sequence: null,
+      usage: { input_tokens: 120, output_tokens: 40 }
+    };
+    const truncated = { ...endTurn, content: [{ type: "text", text: "Partial recommendation" }], stop_reason: "max_tokens" };
+    const mixed = {
+      ...endTurn,
+      content: [
+        { type: "text", text: "Checking the deterministic figures first." },
+        { type: "tool_use", id: "toolu_01", name: "estimate_token_cost", input: { monthlyRequests: 10, averageInputTokens: 100, averageOutputTokens: 50 } }
+      ],
+      stop_reason: "tool_use"
+    };
+
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => new Response(JSON.stringify(endTurn), { status: 200 })));
+    await expect(requestArchitectureRecommendation(intake, cost)).resolves.toBe("Bounded architecture recommendation.");
+
+    // A truncated answer is still an answer; discarding it would drop a usable recommendation.
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => new Response(JSON.stringify(truncated), { status: 200 })));
+    await expect(requestArchitectureRecommendation(intake, cost)).resolves.toBe("Partial recommendation");
+
+    const mixedFetch = vi.fn()
+      .mockImplementationOnce(() => new Response(JSON.stringify(mixed), { status: 200 }))
+      .mockImplementationOnce(() => new Response(JSON.stringify(endTurn), { status: 200 }));
+    vi.stubGlobal("fetch", mixedFetch);
+    await expect(requestArchitectureRecommendation(intake, cost)).resolves.toBe("Bounded architecture recommendation.");
+    const second = JSON.parse((mixedFetch.mock.calls[1]?.[1] as { body: string }).body) as { messages: Array<{ role: string; content: unknown }> };
+    // The assistant turn carrying the tool_use must be echoed back verbatim or the API rejects
+    // the tool_result that follows it.
+    expect(second.messages[1]?.role).toBe("assistant");
+    expect((second.messages[1]?.content as Array<{ type: string }>).map((block) => block.type)).toEqual(["text", "tool_use"]);
+    const results = second.messages[2]?.content as Array<{ tool_use_id: string; is_error: boolean }>;
+    expect(results[0]?.tool_use_id).toBe("toolu_01");
+    expect(results[0]?.is_error).toBe(false);
+  });
+
+  it("never sends the API key anywhere but the provider authentication header", async () => {
+    process.env.ANTHROPIC_API_KEY = "synthetic-test-key";
+    process.env.ANTHROPIC_MODEL = "synthetic-model";
+    const fetchMock = vi.fn().mockImplementation(() => new Response(JSON.stringify({ content: [{ type: "text", text: "ok" }] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await requestArchitectureRecommendation(intake, cost);
+    const [url, init] = fetchMock.mock.calls[0] as [string, { headers: Record<string, string>; body: string }];
+    expect(url).toBe("https://api.anthropic.com/v1/messages");
+    expect(init.headers["x-api-key"]).toBe("synthetic-test-key");
+    expect(init.body).not.toContain("synthetic-test-key");
+  });
 });

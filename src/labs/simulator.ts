@@ -1,53 +1,19 @@
 import type { ControlFinding, ProjectIntake } from "../agent/contracts.js";
 import { runAssessment } from "../agent/workflow.js";
+import { commercialModule, type CommercialFindingId, type CommercialLabInput } from "../scenarios/commercial.js";
+import { insuranceModule, type InsuranceFindingId, type InsuranceLabInput } from "../scenarios/insurance.js";
+import { paymentsModule, type PaymentsFindingId, type PaymentsLabInput } from "../scenarios/payments.js";
+
+export type { CommercialLabInput } from "../scenarios/commercial.js";
+export type { InsuranceLabInput } from "../scenarios/insurance.js";
+export type { PaymentEvent, PaymentsLabInput } from "../scenarios/payments.js";
 
 export type CloudTarget = "aws" | "gcp";
 export type LabScenario = "commercial" | "payments" | "insurance";
 
-interface CommonInput {
-  scenario: LabScenario;
-  humanApproval: boolean;
-}
-
-export interface CommercialLabInput extends CommonInput {
-  scenario: "commercial";
-  assetId: string;
-  maintenanceObservations: string[];
-  downtimeHours: number;
-  hourlyDowntimeCostMinor: number;
-  laborHours: number;
-  laborRateMinor: number;
-  materialCostMinor: number;
-  currency: string;
-  requestedActions: string[];
-}
-
-export interface PaymentEvent {
-  type: "authorization" | "capture" | "settlement" | "reversal" | "refund";
-  amountMinor: number;
-  currency: string;
-  idempotencyKey: string;
-  sourceId: string;
-}
-
-export interface PaymentsLabInput extends CommonInput {
-  scenario: "payments";
-  transactionId: string;
-  currency: string;
-  events: PaymentEvent[];
-}
-
-export interface InsuranceLabInput extends CommonInput {
-  scenario: "insurance";
-  claimId: string;
-  lossType: string;
-  narrative: string;
-  requiredDocuments: string[];
-  documents: Array<{ type: string; sourceId: string }>;
-  facts: Array<{ name: string; value: string; sourceId: string }>;
-}
-
 export type LabInput = CommercialLabInput | PaymentsLabInput | InsuranceLabInput;
+
+export type ScenarioFindingId = CommercialFindingId | PaymentsFindingId | InsuranceFindingId;
 
 export interface LabSimulationResult {
   schemaVersion: "1.0";
@@ -66,104 +32,23 @@ export interface LabSimulationResult {
   };
 }
 
-const finding = (id: string, message: string, remediation: string): ControlFinding => ({
-  id,
-  severity: "critical",
-  message,
-  remediation
-});
+// tests/scenario-evals.test.ts reads the refusal ids out of this file's source text, so a new
+// refusal cannot ship without an evaluation case. The roster is therefore spelled out as
+// literals here rather than computed: the union type makes a typo a compile error, and
+// tests/scenario-modules.test.ts fails if it ever drifts from what the modules declare.
+const finding = (id: ScenarioFindingId): ScenarioFindingId => id;
 
-function assertSafeInteger(value: number, name: string): void {
-  if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${name} must be a non-negative safe integer`);
-}
-
-function commercialPolicy(input: CommercialLabInput): { findings: ControlFinding[]; domain: Record<string, unknown> } {
-  assertSafeInteger(input.hourlyDowntimeCostMinor, "hourlyDowntimeCostMinor");
-  assertSafeInteger(input.laborRateMinor, "laborRateMinor");
-  assertSafeInteger(input.materialCostMinor, "materialCostMinor");
-  if (!Number.isFinite(input.downtimeHours) || input.downtimeHours < 0) throw new Error("downtimeHours must be non-negative");
-  if (!Number.isFinite(input.laborHours) || input.laborHours < 0) throw new Error("laborHours must be non-negative");
-  const prohibited = input.requestedActions.filter((action) => ["submit-work-order", "schedule-labor", "purchase-material", "contact-vendor"].includes(action));
-  const findings: ControlFinding[] = [];
-  if (!input.humanApproval) findings.push(finding("COM-APPROVAL", "A human must approve consequential commercial work.", "Require an accountable approver."));
-  if (prohibited.length > 0) findings.push(finding("COM-ACTION", "The lab may draft but cannot execute work, purchasing, scheduling, or vendor actions.", "Remove prohibited actions and retain a draft-only output."));
-  const laborCostMinor = Math.round(input.laborHours * input.laborRateMinor);
-  const estimatedDowntimeEffectMinor = Math.round(input.downtimeHours * input.hourlyDowntimeCostMinor);
-  return {
-    findings,
-    domain: {
-      assetId: input.assetId,
-      observationCount: input.maintenanceObservations.length,
-      currency: input.currency,
-      assumptions: ["labor hours and rates are estimates", "downtime effect is not a promised saving"],
-      estimatedLaborCostMinor: laborCostMinor,
-      estimatedMaterialCostMinor: input.materialCostMinor,
-      estimatedDowntimeEffectMinor,
-      workOrderDrafted: true,
-      externalActionTaken: false
-    }
-  };
-}
-
-function paymentsPolicy(input: PaymentsLabInput): { findings: ControlFinding[]; domain: Record<string, unknown> } {
-  const findings: ControlFinding[] = [];
-  const keys = new Set<string>();
-  const duplicateKeys = new Set<string>();
-  for (const event of input.events) {
-    assertSafeInteger(event.amountMinor, "event amountMinor");
-    if (!event.currency || event.currency !== input.currency) findings.push(finding("PAY-CURRENCY", "Every payment event must use the transaction currency.", "Correct or quarantine the contradictory event."));
-    if (keys.has(event.idempotencyKey)) duplicateKeys.add(event.idempotencyKey);
-    keys.add(event.idempotencyKey);
-  }
-  if (duplicateKeys.size > 0) findings.push(finding("PAY-IDEMPOTENCY", "Duplicate idempotency keys block reconciliation.", "Investigate duplicates without moving funds."));
-  const total = (type: PaymentEvent["type"]): number => input.events.filter((event) => event.type === type).reduce((sum, event) => sum + event.amountMinor, 0);
-  const captured = total("capture");
-  const settled = total("settlement");
-  const reversed = total("reversal");
-  const refunded = total("refund");
-  if (captured !== settled + reversed || refunded > settled) findings.push(finding("PAY-LEDGER", "Synthetic capture, settlement, reversal, and refund evidence does not reconcile.", "Escalate the exception for operator review; do not move funds."));
-  if (!input.humanApproval) findings.push(finding("PAY-APPROVAL", "A payment exception requires operator approval.", "Assign an authorized human reviewer."));
-  return {
-    findings,
-    domain: {
-      transactionId: input.transactionId,
-      currency: input.currency,
-      eventCount: input.events.length,
-      timelineSourceIds: input.events.map((event) => event.sourceId),
-      capturedMinor: captured,
-      settledMinor: settled,
-      reversedMinor: reversed,
-      refundedMinor: refunded,
-      fundsMoved: false,
-      fraudDecisionMade: false
-    }
-  };
-}
-
-function insurancePolicy(input: InsuranceLabInput): { findings: ControlFinding[]; domain: Record<string, unknown> } {
-  const findings: ControlFinding[] = [];
-  const sourceIds = new Set(input.documents.map((document) => document.sourceId));
-  const missingDocuments = input.requiredDocuments.filter((required) => !input.documents.some((document) => document.type === required));
-  const unsupportedFacts = input.facts.filter((fact) => !sourceIds.has(fact.sourceId)).map((fact) => fact.name);
-  if (missingDocuments.length > 0) findings.push(finding("INS-EVIDENCE", "Required synthetic evidence is missing.", "Keep the gap open and request the named documents."));
-  if (unsupportedFacts.length > 0) findings.push(finding("INS-PROVENANCE", "Every material fact must reference a supplied source identifier.", "Remove or source unsupported facts."));
-  if (!input.humanApproval) findings.push(finding("INS-APPROVAL", "Claim routing requires human adjuster review.", "Assign an authorized human adjuster."));
-  return {
-    findings,
-    domain: {
-      claimId: input.claimId,
-      lossType: input.lossType,
-      evidenceSourceIds: [...sourceIds],
-      supportedFactNames: input.facts.filter((fact) => sourceIds.has(fact.sourceId)).map((fact) => fact.name),
-      missingDocuments,
-      unsupportedFacts,
-      narrativeLogged: false,
-      coverageDetermined: false,
-      liabilityDetermined: false,
-      paymentAuthorized: false
-    }
-  };
-}
+export const policyFindingIds: readonly ScenarioFindingId[] = [
+  finding("COM-APPROVAL"),
+  finding("COM-ACTION"),
+  finding("PAY-CURRENCY"),
+  finding("PAY-IDEMPOTENCY"),
+  finding("PAY-LEDGER"),
+  finding("PAY-APPROVAL"),
+  finding("INS-EVIDENCE"),
+  finding("INS-PROVENANCE"),
+  finding("INS-APPROVAL")
+];
 
 function architectureIntake(input: LabInput): ProjectIntake {
   const industries = { commercial: "industrial services", payments: "financial services", insurance: "insurance" } as const;
@@ -186,10 +71,10 @@ function architectureIntake(input: LabInput): ProjectIntake {
 
 export async function runLabSimulation(input: LabInput, cloud: CloudTarget, now = new Date()): Promise<LabSimulationResult> {
   const evaluated = input.scenario === "commercial"
-    ? commercialPolicy(input)
+    ? commercialModule.policy(input)
     : input.scenario === "payments"
-      ? paymentsPolicy(input)
-      : insurancePolicy(input);
+      ? paymentsModule.policy(input)
+      : insuranceModule.policy(input);
   const architecture = await runAssessment(architectureIntake(input), now);
   const findings = [...evaluated.findings, ...architecture.findings];
   return {

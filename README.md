@@ -52,6 +52,15 @@ curl -X POST http://localhost:3000/api/v1/scenarios/payments/assess \
 npm run scenario -- --scenario=insurance --input=examples/labs/insurance.json
 ```
 
+A local console exercises the three scenarios against the running API. It is a development tool: it lives outside `public/`, is not copied into the runtime container, and refuses to start outside a development environment, so the static Vercel walkthrough boundary is unaffected.
+
+```bash
+npm run dev          # sample API on 3000
+npm run console      # console on 3300, proxying the API
+```
+
+`npm run test:regression` runs only the tests that intersect the current change through the import graph, and explains why it selected each one. `docs/AGENT_PATTERNS.md` covers the agent architectures available here, and `docs/MCP_CONNECTORS.md` the cloud connector layer.
+
 The workflow defaults to local deterministic mode. To request a Claude recommendation locally, copy `.env.example` to `.env`, supply a model and pricing approved by the fork owner, place the API key in `.env`, and run `npm run dev:env`. The ordinary `npm run dev` command does not load `.env`, and tests never require a key.
 
 After a Vercel deployment, verify that the public surface is static and healthy:

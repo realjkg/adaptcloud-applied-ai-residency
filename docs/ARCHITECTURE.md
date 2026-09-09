@@ -18,6 +18,10 @@ The envelope carries `schemaVersion`, `scenario`, `cloud`, `mode`, `status`, `hu
 
 The scenario policies live in `src/labs/simulator.ts` and the registry imports them rather than restating them. A second copy of a rule becomes a second, divergent answer.
 
+## Cloud connectors
+
+`src/platform/mcp/` is a default-deny layer for attaching cloud-provider MCP servers. A call is refused unless configuration names the connector, the operation, and an allowlisted public https host; mutations additionally need a per-call human approval reference. Credentials resolve at call time from workload identity or an OIDC exchange and are structurally unable to reach a log or a result. There is no live transport, and adding one needs owner approval, a threat model, and tests. `docs/MCP_CONNECTORS.md` holds the detail.
+
 ## Model tools
 
 `src/agent/tools.ts` exposes four read-only tools so the model can cite deterministic facts instead of assuming them: token cost, control findings, runtime readiness, and promotion gates. Each wraps existing code and computes nothing of its own.
