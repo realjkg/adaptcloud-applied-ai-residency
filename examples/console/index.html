@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Adapt Cloud scenario console</title>
+    <link rel="stylesheet" href="/console.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Scenario console</h1>
+      <p class="boundary">
+        Local development tool. It calls the sample API on this machine only. It holds no credentials,
+        is not part of the Vercel walkthrough, and is not copied into the runtime container.
+      </p>
+
+      <form id="assess">
+        <label for="scenario">Scenario</label>
+        <select id="scenario">
+          <option value="commercial">commercial</option>
+          <option value="payments">payments</option>
+          <option value="insurance">insurance</option>
+        </select>
+
+        <label for="cloud">Cloud contract</label>
+        <select id="cloud">
+          <option value="aws">aws</option>
+          <option value="gcp">gcp</option>
+        </select>
+
+        <label for="payload">Request</label>
+        <textarea id="payload" rows="18" spellcheck="false"></textarea>
+
+        <div class="actions">
+          <button type="submit">Assess</button>
+          <button type="button" id="reset">Reload fixture</button>
+        </div>
+      </form>
+
+      <section id="result" hidden>
+        <h2>Result</h2>
+        <p id="verdict"></p>
+        <dl id="summary"></dl>
+        <h3>Findings</h3>
+        <ul id="findings"></ul>
+        <h3>Envelope</h3>
+        <pre id="envelope"></pre>
+      </section>
+    </main>
+    <script src="/console.js"></script>
+  </body>
+</html>

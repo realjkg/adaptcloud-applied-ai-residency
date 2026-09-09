@@ -33,6 +33,16 @@ curl -fsS http://127.0.0.1:3101/health/ready | grep -q '"status":"ready"'
 curl -fsS -X POST http://127.0.0.1:3101/api/assess -H 'content-type: application/json' --data-binary @examples/client-intake.json | grep -q '"mode":"deterministic"'
 status=$(head -c 70000 /dev/zero | tr '\0' x | curl -sS -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:3101/api/assess --data-binary @-)
 test "$status" = "413"
+for scenario in commercial payments insurance; do
+  curl -fsS -X POST "http://127.0.0.1:3101/api/v1/scenarios/$scenario/assess" -H 'content-type: application/json' \
+    --data-binary "@examples/labs/$scenario.json" | grep -q '"humanApprovalRequired":true'
+done
+curl -fsS -X POST 'http://127.0.0.1:3101/api/v1/scenarios/payments/assess?cloud=gcp' -H 'content-type: application/json' \
+  --data-binary @examples/labs/payments.json | grep -q '"terraformRoot":"infra/gcp"'
+status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:3101/api/v1/scenarios/insurance/assess -H 'content-type: application/json' --data-binary @examples/labs/payments.json)
+test "$status" = "400"
+status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:3101/api/v1/scenarios/unknown/assess -H 'content-type: application/json' --data-binary @examples/labs/payments.json)
+test "$status" = "404"
 docker stop --time 10 "$open_name" >/dev/null
 docker logs "$open_name" >"$open_log" 2>&1
 grep -q '"type":"service.shutdown"' "$open_log"

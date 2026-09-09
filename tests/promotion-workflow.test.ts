@@ -29,4 +29,17 @@ describe("guided environment promotion workflow", () => {
     expect(guide).toContain("`deploymentAuthorized` is always `false`");
     expect(guide).toContain("evidenceMode: simulation");
   });
+
+  it("documents the connector gate and the threat model that stands behind it", () => {
+    const guide = read("docs/ENVIRONMENT_PROMOTION_LAB.md");
+    expect(guide).toContain("`connector-review` gate is a sandbox gate under the security pillar");
+    expect(guide).toContain("docs/adr/0002-mcp-connector-threat-model.md");
+
+    const adr = read("docs/adr/0002-mcp-connector-threat-model.md");
+    expect(adr).toContain("**No live transport is authorised.**");
+    for (const threat of ["DNS rebinding", "Redirects", "request smuggling", "instance metadata", "connector-review"]) {
+      expect(adr).toContain(threat);
+    }
+    expect(read("docs/templates/PROMOTION_EVIDENCE.md")).toContain("MCP connector state per environment");
+  });
 });

@@ -4,6 +4,17 @@ export const promotionEnvironments = ["development", "sandbox", "qa", "staging",
 export type PromotionEnvironment = typeof promotionEnvironments[number];
 export type EvidenceMode = "simulation" | "observed";
 
+/**
+ * The cumulative gate matrix. A gate is earned at one stage and required at that stage and every
+ * later one, so a missing early control blocks every later review.
+ *
+ * `connector-review` sits at sandbox because sandbox is the first stage with a real cloud account,
+ * platform credentials, and network egress — the first place the MCP connector layer in
+ * `src/platform/mcp/` could be switched on against something real. Development runs locally against
+ * the stub transport. The gate is a security finding rather than a cost one: the layer's risk is
+ * egress and credential blast radius, and its evidence is the threat model in
+ * `docs/adr/0002-mcp-connector-threat-model.md` plus the connector settings actually in force.
+ */
 export const promotionGates = {
   "requirements-mapped": { stage: "development", pillar: "operational-efficiency" },
   "unit-tests": { stage: "development", pillar: "reliability" },
@@ -11,6 +22,7 @@ export const promotionGates = {
   "scenario-matrix": { stage: "development", pillar: "security" },
   "immutable-artifact": { stage: "sandbox", pillar: "security" },
   "container-acceptance": { stage: "sandbox", pillar: "security" },
+  "connector-review": { stage: "sandbox", pillar: "security" },
   "terraform-plan": { stage: "sandbox", pillar: "operational-efficiency" },
   "telemetry-integration": { stage: "sandbox", pillar: "reliability" },
   "cleanup-plan": { stage: "sandbox", pillar: "cost-optimization" },

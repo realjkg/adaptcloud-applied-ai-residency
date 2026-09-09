@@ -9,10 +9,31 @@ Build once and retain the same immutable artifact identity through every stage. 
 | Stage | Student activity | Required evidence | Promotion question |
 |---|---|---|---|
 | Development | Map the scenario, implement deterministic controls, run unit tests and model evaluations | requirements, tests, evals, six-scenario matrix | Does the application meet its bounded contract? |
-| Sandbox | Exercise the container, Terraform provider mocks, local OTLP path and cleanup path | artifact identity, container acceptance, plans, trace, destroy plan and cleanup proof | Can the candidate run and be removed safely in an isolated account? |
+| Sandbox | Exercise the container, Terraform provider mocks, local OTLP path, connector state and cleanup path | artifact identity, container acceptance, connector review, plans, trace, destroy plan and cleanup proof | Can the candidate run and be removed safely in an isolated account? |
 | QA | Test API contracts, malformed input, prompt injection, provider failure and supply-chain risk | contract, negative, adversarial and scan results | Does it fail closed without leaking or bypassing controls? |
 | Staging | Evaluate production-shaped scale, SLOs, recovery, rollback, cost and sustainability | load result, drills, SLO, cost and region decisions | Can operators detect, recover and control spend? |
 | Production | Review the threat model, runbook and accountable approvals | threat model, exercised runbook, change and owner approvals | Should an organization authorize a controlled rollout? |
+
+## Connector review
+
+The `connector-review` gate is a sandbox gate under the security pillar. Sandbox is the first stage
+with a real cloud account, injected platform credentials and network egress, so it is the first
+place the MCP connector layer in `src/platform/mcp/` could be switched on against something real;
+development runs locally against the stub transport. Because gates are cumulative, placing it at
+sandbox also makes it required at QA, staging and production, which is what
+`docs/MCP_CONNECTORS.md` asks for when it says a live connector needs evidence before staging.
+
+It is a security gate rather than a cost one. The layer's risk is egress and credential blast
+radius: an enabled connector can reach a provider account and, if the host checks are wrong, the
+instance metadata service. Spend is a second-order effect and is already covered by
+`cost-reviewed`.
+
+Satisfy the gate by recording, for the environment under review, whether the layer is enabled, what
+`MCP_ALLOWED_HOSTS` and `MCP_CREDENTIAL_MODE` contain, and who reviewed that state. The reference
+profiles all ship with the layer off, so the honest sandbox answer is usually "disabled, verified
+from the environment file". Enabling it is an owner decision that requires
+`docs/adr/0002-mcp-connector-threat-model.md` and everything its decision section lists, and the
+gate then needs observed rather than simulated evidence.
 
 ## Run the complete emulator
 
@@ -44,7 +65,7 @@ cp examples/promotion-evidence.simulated.json /tmp/promotion-evidence.json
 npm run promotion:simulate -- --environment=qa --evidence=/tmp/promotion-evidence.json
 ```
 
-The command must exit non-zero, list the missing gate under its well-architected pillar, and block QA and every later stage. Restore the evidence only after documenting what test or review would satisfy it.
+The command must exit non-zero, list the missing gate under its well-architected pillar, and block QA and every later stage. Try the same experiment with `connector-review`: it is earned one stage earlier, so it blocks sandbox as well. Restore the evidence only after documenting what test or review would satisfy it.
 
 ## Scenario application
 

@@ -5,7 +5,8 @@ This is a training repository and is not approved to process real customer, regu
 ## Non-negotiable controls
 
 - No client-side or committed secrets.
-- Default-deny external tools and egress.
+- Default-deny external tools and egress. The MCP connector layer in `src/platform/mcp/` ships disabled in every reference profile, refuses any endpoint that is not an allowlisted public https host, blocks private, loopback, link-local, and instance-metadata addresses ahead of the allowlist, and has no live transport. See `docs/MCP_CONNECTORS.md`.
+- Connector and model tool results are untrusted input. They inform a recommendation and never change a finding, a severity, or an approval state.
 - Explicit human approval for consequential actions.
 - Least-privilege service identities and tenant isolation.
 - Prompt and retrieved content are untrusted.
