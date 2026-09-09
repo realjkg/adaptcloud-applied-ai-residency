@@ -42,6 +42,16 @@ curl -X POST http://localhost:3000/api/assess \
   --data-binary @examples/client-intake.json
 ```
 
+Each scenario has its own versioned route and its own request contract. A fixture sent to the wrong route is rejected rather than assessed as the wrong domain, and `?cloud=aws|gcp` selects the cloud contract without changing policy.
+
+```bash
+curl -X POST http://localhost:3000/api/v1/scenarios/payments/assess \
+  -H 'content-type: application/json' \
+  --data-binary @examples/labs/payments.json
+
+npm run scenario -- --scenario=insurance --input=examples/labs/insurance.json
+```
+
 The workflow defaults to local deterministic mode. To request a Claude recommendation locally, copy `.env.example` to `.env`, supply a model and pricing approved by the fork owner, place the API key in `.env`, and run `npm run dev:env`. The ordinary `npm run dev` command does not load `.env`, and tests never require a key.
 
 After a Vercel deployment, verify that the public surface is static and healthy:

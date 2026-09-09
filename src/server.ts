@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { runAssessment } from "./agent/workflow.js";
+import { assessScenario, isScenarioName } from "./scenarios/registry.js";
 import { writeRequestEvent } from "./platform/observability.js";
 import { assessRuntimeReadiness, assertProductionReady, runtimeConfigFromEnvironment } from "./platform/runtime.js";
 import { shutdownTelemetry } from "./platform/telemetry.js";
@@ -10,12 +11,15 @@ const runtime = runtimeConfigFromEnvironment();
 assertProductionReady(runtime);
 const port = runtime.port;
 const maxBodyBytes = 64 * 1024;
+const scenarioRoute = /^\/api\/v1\/scenarios\/([a-z-]{1,32})\/assess$/;
+const cloudTargets = new Set(["aws", "gcp"]);
 let activeRequests = 0;
 
 const server = createServer(async (request, response) => {
   const startedAt = performance.now();
   const requestId = randomUUID();
-  const route = new URL(request.url ?? "/", "http://service.local").pathname;
+  const url = new URL(request.url ?? "/", "http://service.local");
+  const route = url.pathname;
   const span = route.startsWith("/health") ? undefined : trace.getTracer("adaptcloud-http").startSpan("http.request", {
     attributes: {
       "http.request.method": request.method ?? "UNKNOWN",
@@ -55,7 +59,12 @@ const server = createServer(async (request, response) => {
     response.writeHead(ready ? 200 : 503).end(JSON.stringify({ status: ready ? "ready" : "not_ready", environment: runtime.environment }));
     return;
   }
-  if (request.method !== "POST" || route !== "/api/assess") {
+  // The generic route keeps the original opportunity assessment; the versioned routes carry the
+  // per-scenario contracts. Both sit behind the same auth, capacity, and body-size boundary.
+  const scenarioMatch = scenarioRoute.exec(route);
+  const scenario = scenarioMatch?.[1];
+  const isGenericAssess = route === "/api/assess";
+  if (request.method !== "POST" || (!isGenericAssess && !isScenarioName(scenario))) {
     outcome = "rejected";
     response.writeHead(404).end(JSON.stringify({ error: "not_found" }));
     return;
@@ -82,7 +91,19 @@ const server = createServer(async (request, response) => {
       chunks.push(buffer);
     }
     const input = JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
-    response.writeHead(200).end(JSON.stringify(await runAssessment(input)));
+    let payload: unknown;
+    if (isGenericAssess) {
+      payload = await runAssessment(input);
+    } else {
+      const requestedCloud = url.searchParams.get("cloud") ?? "aws";
+      if (!cloudTargets.has(requestedCloud)) throw new Error("cloud must be aws or gcp");
+      payload = await assessScenario(scenario as "commercial" | "payments" | "insurance", input, requestedCloud as "aws" | "gcp");
+    }
+    // The status must not be written until the payload exists. Chaining writeHead(200) ahead of
+    // the await marks the headers sent, so a rejected payload could no longer answer 400 and the
+    // process died on ERR_HTTP_HEADERS_SENT. A blocked assessment is still 200: it is a completed
+    // deterministic refusal, not a request the caller should retry.
+    response.writeHead(200).end(JSON.stringify(payload));
   } catch (error) {
     outcome = "error";
     const message = error instanceof Error ? error.message : "invalid_request";

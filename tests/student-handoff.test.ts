@@ -20,6 +20,9 @@ describe("student handoff acceptance", () => {
     expect(script).toContain("--cap-drop ALL");
     expect(script).toContain("no-new-privileges");
     expect(script).toContain('test "$status" = "413"');
+    expect(script).toContain("/api/v1/scenarios/$scenario/assess");
+    expect(script).toContain('"terraformRoot":"infra/gcp"');
+    expect(script).toContain("scenarios/unknown/assess");
     expect(script).toContain('test "$status" = "401"');
     expect(script).toContain('"type":"service.shutdown"');
     expect(dockerfile).toContain("rm -rf /usr/local/lib/node_modules");

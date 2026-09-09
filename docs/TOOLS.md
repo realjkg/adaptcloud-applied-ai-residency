@@ -14,7 +14,7 @@ The rule in `.cursor/rules/adapt-cloud.mdc` loads the engineering constraints. U
 
 ## Lovable
 
-Use Lovable only for the resident-facing or customer-demo UI. Connect it to `POST /api/assess`; never place an Anthropic key in generated browser code. The UI must label deterministic versus Claude-assisted results, display findings without suppressing severity, and require human review before any follow-up action.
+Use Lovable only for the resident-facing or customer-demo UI. Connect it to `POST /api/assess` or to a versioned scenario route such as `POST /api/v1/scenarios/payments/assess`; never place an Anthropic key in generated browser code. The UI must label deterministic versus Claude-assisted results, display findings without suppressing severity, and require human review before any follow-up action.
 
 ## Replit
 
