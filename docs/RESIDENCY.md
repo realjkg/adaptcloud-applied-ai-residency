@@ -6,6 +6,8 @@ The residency converts development skill and Claude architectural knowledge into
 
 Complete CCA-F preparation, run the repository locally, trace the workflow, and explain its trust boundaries.
 
+Work the architecture baseline through the skills in `.claude/skills/`, which express it as checks rather than reading: `npm run skills:boundaries` for the five trust boundaries, `npm run skills:pillars` for the six-pillar promotion backlog, and `npm run skills:probe` for the adversarial refusals each scenario makes. Explain every finding and every clean result — a green check you cannot account for is not preparation.
+
 ## Weeks 3–4: Repository delivery
 
 Use Cursor or Claude Code to complete a bounded issue through a reviewed pull request with tests and rollback notes.

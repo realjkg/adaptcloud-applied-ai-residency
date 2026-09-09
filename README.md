@@ -71,7 +71,7 @@ AWS ECS Fargate and GCP Cloud Run application-layer foundations live in `infra/`
 
 ## Development environments
 
-- **Claude Code:** governed by `CLAUDE.md`.
+- **Claude Code:** governed by `CLAUDE.md`, with executable skills in `.claude/skills/` for architecture review, six-pillar readiness, tokenomics, promotion evidence, scenario policy, and the definition-of-done gates. Every skill also runs standalone through the `skills:*` npm scripts.
 - **Cursor:** governed by `.cursor/rules/adapt-cloud.mdc`.
 - **Lovable:** builds only the presentation layer against the sample API; secrets remain server-side.
 - **Replit:** runs through `.replit`; use Replit Secrets for server-side configuration.
