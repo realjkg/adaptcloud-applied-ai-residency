@@ -47,6 +47,26 @@ function boundedInteger(value: string | undefined, fallback: number, min: number
   return parsed;
 }
 
+/** Same shape policy validates: exact `type/subtype`, no wildcard and no parameters. */
+const contentTypePattern = /^[a-z0-9][a-z0-9.+-]*\/[a-z0-9][a-z0-9.+-]*$/;
+
+/**
+ * Fail-closed media-type list. An unparseable entry returns `undefined`, which disables the whole
+ * layer, because an operator who believes JSON is enforced must not silently get "anything".
+ */
+function contentTypes(value: string | undefined, notes: string[]): readonly string[] | undefined {
+  const entries = list(value);
+  if (entries.length === 0) return defaultMcpLimits.allowedContentTypes;
+  const normalized = entries.map((entry) => entry.toLowerCase());
+  if (normalized.length > 8 || normalized.some((entry) => !contentTypePattern.test(entry))) {
+    notes.push(
+      "MCP_ALLOWED_CONTENT_TYPES must be up to 8 exact media types such as application/json; the connector layer stays disabled"
+    );
+    return undefined;
+  }
+  return normalized;
+}
+
 function bindingFor(
   descriptor: McpConnectorDescriptor,
   environment: NodeJS.ProcessEnv,
@@ -89,13 +109,19 @@ export function mcpConfigFromEnvironment(environment: NodeJS.ProcessEnv = proces
     return { config: disabledMcpLayerConfig, credentialMode, notes };
   }
 
+  const allowedContentTypes = contentTypes(environment.MCP_ALLOWED_CONTENT_TYPES, notes);
   const limits: McpLimits = {
     callTimeoutMs: boundedInteger(environment.MCP_CALL_TIMEOUT_MS, defaultMcpLimits.callTimeoutMs, 1, 30_000, "MCP_CALL_TIMEOUT_MS", notes),
     maxAttempts: boundedInteger(environment.MCP_MAX_ATTEMPTS, defaultMcpLimits.maxAttempts, 1, 3, "MCP_MAX_ATTEMPTS", notes),
     maxCallsPerExchange: boundedInteger(environment.MCP_MAX_CALLS_PER_EXCHANGE, defaultMcpLimits.maxCallsPerExchange, 1, 16, "MCP_MAX_CALLS_PER_EXCHANGE", notes),
-    maxResultBytes: boundedInteger(environment.MCP_MAX_RESULT_BYTES, defaultMcpLimits.maxResultBytes, 1, 262_144, "MCP_MAX_RESULT_BYTES", notes)
+    maxResultBytes: boundedInteger(environment.MCP_MAX_RESULT_BYTES, defaultMcpLimits.maxResultBytes, 1, 262_144, "MCP_MAX_RESULT_BYTES", notes),
+    // Zero by default: following a redirect would let an allowlisted host hand the call to one
+    // that was never reviewed, so an operator has to ask for it explicitly and narrowly.
+    maxRedirects: boundedInteger(environment.MCP_MAX_REDIRECTS, defaultMcpLimits.maxRedirects, 0, 2, "MCP_MAX_REDIRECTS", notes),
+    allowedContentTypes: allowedContentTypes ?? defaultMcpLimits.allowedContentTypes,
+    maxConcurrentCalls: boundedInteger(environment.MCP_MAX_CONCURRENT_CALLS, defaultMcpLimits.maxConcurrentCalls, 1, 8, "MCP_MAX_CONCURRENT_CALLS", notes)
   };
-  if (Object.values(limits).some((limit) => Number.isNaN(limit))) {
+  if (allowedContentTypes === undefined || Object.values(limits).some((limit) => typeof limit === "number" && Number.isNaN(limit))) {
     return { config: disabledMcpLayerConfig, credentialMode, notes };
   }
 

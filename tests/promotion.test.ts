@@ -3,8 +3,10 @@ import evidenceFixture from "../examples/promotion-evidence.simulated.json" with
 import {
   evaluatePromotion,
   promotionEnvironments,
+  promotionGates,
   requiredGatesFor,
-  type PromotionEvidence
+  type PromotionEvidence,
+  type PromotionGate
 } from "../src/platform/promotion.js";
 
 const evidence = evidenceFixture as PromotionEvidence;
@@ -23,6 +25,34 @@ describe("environment promotion evaluation", () => {
     expect(requiredGatesFor("qa")).toContain("terraform-plan");
     expect(requiredGatesFor("staging")).toContain("adversarial-tests");
     expect(requiredGatesFor("production")).toContain("rollback-drill");
+  });
+
+  it("keeps the simulated evidence complete so a new gate cannot be forgotten", () => {
+    const gateNames = Object.keys(promotionGates) as PromotionGate[];
+    expect(Object.keys(evidence.gates).sort()).toEqual([...gateNames].sort());
+    expect(gateNames.every((gate) => evidence.references[gate] !== undefined)).toBe(true);
+  });
+
+  it("requires connector review from sandbox onward, where egress could first be enabled", () => {
+    expect(promotionGates["connector-review"]).toEqual({ stage: "sandbox", pillar: "security" });
+    expect(requiredGatesFor("development")).not.toContain("connector-review");
+    for (const environment of ["sandbox", "qa", "staging", "production"] as const) {
+      expect(requiredGatesFor(environment)).toContain("connector-review");
+    }
+  });
+
+  it("blocks sandbox and every later review when connector review is absent", () => {
+    const incomplete: PromotionEvidence = {
+      ...evidence,
+      gates: { ...evidence.gates, "connector-review": false }
+    };
+    expect(evaluatePromotion("development", incomplete).readyForHumanReview).toBe(true);
+    for (const environment of ["sandbox", "qa", "staging", "production"] as const) {
+      const result = evaluatePromotion(environment, incomplete);
+      expect(result.readyForHumanReview).toBe(false);
+      expect(result.missingGates).toEqual(["connector-review"]);
+      expect(result.findingsByPillar.security).toContain("connector-review");
+    }
   });
 
   it("blocks QA and every later review when a QA control is absent", () => {

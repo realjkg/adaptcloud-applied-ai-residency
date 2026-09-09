@@ -48,9 +48,10 @@ request shape, connector, limits, wildcard, egress, operation, approval.
 | Operation allowlist | `unknown_operation`, `operation_not_allowlisted` |
 | Human approval | `consequential_operation_requires_approval`, `consequential_operation_not_opted_in`, `approval_reference_invalid`, `approval_reference_mismatch`, `approval_reference_expired` |
 
-The call path adds runtime refusals: `call_limit_reached`, `credential_unavailable`,
-`transport_unavailable`, `transport_timeout`, `transport_refused`, `result_too_large`,
-`result_not_serializable`.
+The call path adds runtime refusals: `call_limit_reached`, `concurrency_limit_reached`,
+`credential_unavailable`, `transport_unavailable`, `transport_timeout`, `transport_refused`,
+`redirect_not_permitted`, `content_type_not_allowed`, `result_too_large`,
+`result_not_serializable`. Thirty reasons in total.
 
 Every reason has a test, and the suite fails if a new reason is added without one.
 
@@ -63,6 +64,14 @@ into a credential leak, so it is not left to operator discipline.
 
 **A wildcard anywhere invalidates the binding.** Not just a bare `*`: `aws.read_*` is refused too.
 A prefix wildcard is how an allowlist silently grows to include an operation nobody reviewed.
+
+**A redirect is not followed by default.** `maxRedirects` defaults to zero. A redirect is how an
+allowlisted host hands the call to one that was never reviewed, so following one has to be asked
+for explicitly and narrowly, and the cap is two even then.
+
+**An unexpected content type is refused, not parsed.** `allowedContentTypes` defaults to exactly
+`application/json`. Wildcards and parameters are rejected in configuration, so `*/*` cannot be
+introduced by an operator who wanted to stop a mismatch warning.
 
 **An oversized result is refused, not truncated.** A truncated cost or deployment figure is worse
 than an absent one, because it still looks like an answer.
@@ -113,11 +122,30 @@ All off in every shipped reference profile. Enabling an egress path is an owner 
 | `MCP_MAX_ATTEMPTS` | 1–3, default 2. Retry applies only to an idempotent read. |
 | `MCP_MAX_CALLS_PER_EXCHANGE` | 1–16, default 4. |
 | `MCP_MAX_RESULT_BYTES` | 1–262144, default 16384. |
+| `MCP_MAX_REDIRECTS` | 0–2, default 0. Zero means do not follow. |
+| `MCP_ALLOWED_CONTENT_TYPES` | Up to 8 exact `type/subtype` media types, default `application/json`. No wildcard, no parameters. |
+| `MCP_MAX_CONCURRENT_CALLS` | 1–8, default 2. Bounds calls in flight for one exchange. |
 | `MCP_CREDENTIAL_MODE` | `denied`, `workload-identity`, or `oidc-exchange`. Default `denied`. Never a credential value. |
 
 A limit outside its bounds disables the entire layer rather than falling back to a default. A
 connector that half-reads its configuration is worse than one that is off, because the operator
 believes a control is in place.
+
+## Audit
+
+Every call emits exactly one event, on every path: policy refusal, runtime refusal, and success.
+A refusal that leaves no trace is indistinguishable from a call that never happened.
+
+The event records connector id, operation, operation class, decision, refusal reason, attempt
+count, duration, result byte size, and the approval id when one was presented. It cannot record
+anything else, because the event type is closed and scalar-only: there is no field able to hold
+the tool input, the result body, an endpoint path or query, a credential, or a credential error.
+The shape is the control rather than the discipline of whoever writes the next call site. The
+endpoint host is omitted entirely, and connector and operation names are validated before they are
+recorded, since on an invalid request they come from the caller rather than from operator config.
+
+A sink failure never changes a call outcome. The call already happened either way, and an
+observability fault must not become an authorization result.
 
 ## Results are untrusted
 
@@ -145,8 +173,11 @@ Endpoint hosts are not baked into the descriptors. They come from operator confi
 
 In order, and none of these is optional:
 
-1. **Owner approval and a threat model** covering the provider, the data crossing the boundary, and
-   the blast radius of a compromised connector.
+1. **Owner approval.** The threat model now exists at `docs/adr/0002-mcp-connector-threat-model.md`
+   and covers URL parsing and check ordering, redirects, DNS rebinding and time-of-check to
+   time-of-use, reserved and metadata address space, proxy and smuggling boundaries, credential
+   custody and resolver failure, response handling, and the trust classification of results. It is
+   explicit about which controls are implemented and which are contractual until a socket exists.
 2. **Least privilege at the provider.** The role backing the connector must be read-only in IAM,
    not read-only by convention in this code. Two independent controls, because one will fail.
 3. **Short-lived credentials only.** Workload identity or an OIDC exchange. Never a long-lived key
@@ -157,6 +188,7 @@ In order, and none of these is optional:
    duration, and approval reference. No credential, no result body.
 6. **Tests for the transport itself**, including timeout, refusal, oversized result, and a
    connection to a host that policy would refuse.
-7. **A promotion gate.** A live connector changes the security and cost posture of every
-   environment it is enabled in, and `docs/ENVIRONMENT_PROMOTION_LAB.md` should carry evidence for
-   it before staging.
+7. **The `connector-review` promotion gate**, satisfied with observed rather than simulated
+   evidence. It sits at the sandbox stage under the security pillar, because sandbox is the first
+   environment with a real cloud account, injected platform credentials, and network egress.
+   Gates are cumulative, so it is also required at QA, staging, and production.

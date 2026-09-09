@@ -8,7 +8,7 @@ description: Evaluate cumulative promotion evidence across development, sandbox,
 Promotion here is **cumulative and artifact-bound**: one immutable container moves from
 development to production, and every later stage still requires every earlier gate. A rebuild
 between stages invalidates the evidence that came before it, because the thing reviewed is no
-longer the thing being promoted. `src/platform/promotion.ts` holds 24 gates across five stages,
+longer the thing being promoted. `src/platform/promotion.ts` holds 25 gates across five stages,
 each tagged with the pillar it serves.
 
 ## Evaluate the evidence
@@ -33,8 +33,10 @@ Each stage's gates map to what that stage is *for* (see `docs/ENVIRONMENT_PROMOT
 
 - **development** — requirements mapped, unit tests, agent evaluations, scenario matrix.
 - **sandbox** — immutable artifact, container acceptance, terraform plan, telemetry integration,
-  cleanup planned *and* verified. Cleanup is a cost-optimization gate: a lab that leaves
-  resources running teaches the wrong habit and bills the student.
+  cleanup planned *and* verified, connector review. Cleanup is a cost-optimization gate: a lab
+  that leaves resources running teaches the wrong habit and bills the student. Connector review is
+  a security gate: sandbox is the first environment with a real account, real credentials, and
+  real egress.
 - **qa** — contract, negative, and adversarial tests, plus supply-chain scan. QA is failure
   testing; a QA stage that only runs happy paths has not been done.
 - **staging** — load test, rollback drill, restore drill, SLO defined, cost reviewed,

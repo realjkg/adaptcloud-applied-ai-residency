@@ -90,6 +90,7 @@ describe("tools wrap deterministic code without re-implementing it", () => {
       gates: {
         "requirements-mapped": true,
         "unit-tests": true,
+        "connector-review": false,
         "agent-evaluations": false,
         "scenario-matrix": false,
         "immutable-artifact": false,

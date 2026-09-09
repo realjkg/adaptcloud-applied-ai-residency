@@ -43,6 +43,12 @@ export interface McpLimits {
   readonly maxAttempts: number;
   readonly maxCallsPerExchange: number;
   readonly maxResultBytes: number;
+  /** A redirect is how an allowlisted host hands a call to one that was never reviewed. */
+  readonly maxRedirects: number;
+  /** Exact media types, no wildcards and no parameters. An unexpected type is refused, not parsed. */
+  readonly allowedContentTypes: readonly string[];
+  /** Upper bound on connector calls in flight at once: a bound on blast radius, cost, and latency. */
+  readonly maxConcurrentCalls: number;
 }
 
 /** Operator allowlist entry. Both operation lists are exact names; `*` is rejected by policy. */
@@ -118,7 +124,10 @@ export const runtimeRefusalReasons = [
   "transport_timeout",
   "transport_refused",
   "result_too_large",
-  "result_not_serializable"
+  "result_not_serializable",
+  "concurrency_limit_reached",
+  "redirect_not_permitted",
+  "content_type_not_allowed"
 ] as const;
 
 export type McpPolicyRefusalReason = typeof policyRefusalReasons[number];
@@ -139,6 +148,8 @@ export interface McpAllowedCall {
   readonly timeoutMs: number;
   readonly maxAttempts: number;
   readonly maxResultBytes: number;
+  readonly maxRedirects: number;
+  readonly allowedContentTypes: readonly string[];
   readonly approvalId?: string;
 }
 
@@ -155,7 +166,10 @@ export const defaultMcpLimits: McpLimits = {
   callTimeoutMs: 5_000,
   maxAttempts: 2,
   maxCallsPerExchange: 4,
-  maxResultBytes: 16_384
+  maxResultBytes: 16_384,
+  maxRedirects: 0,
+  allowedContentTypes: ["application/json"],
+  maxConcurrentCalls: 2
 };
 
 /** The configuration the layer has when an operator has configured nothing. */

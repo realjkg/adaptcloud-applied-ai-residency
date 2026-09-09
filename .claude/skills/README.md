@@ -14,7 +14,7 @@ certification blueprint.
 | `cca-f-architecture-review` | bounded agency and trust boundaries | `scan-boundaries.mjs` — 9 rules over `SECURITY.md`, `docs/ARCHITECTURE.md`, `CLAUDE.md` |
 | `well-architected-review` | six-pillar operations | `pillar-review.mjs` — `assessRuntimeReadiness` from `src/platform/runtime.ts` |
 | `tokenomics-estimate` | AI Tokenomics and FinOps | `estimate-cost.mjs` — `estimateMonthlyCost` from `src/agent/cost.ts` |
-| `promotion-evidence` | delivery evidence and reversibility | `evaluate-evidence.mjs` — the 24-gate matrix in `src/platform/promotion.ts` |
+| `promotion-evidence` | delivery evidence and reversibility | `evaluate-evidence.mjs` — the 25-gate matrix in `src/platform/promotion.ts` |
 | `scenario-policy` | regulated domain policy | `probe-invariants.mjs` — 14 adversarial probes over `src/labs/simulator.ts` |
 | `residency-gates` | definition of done | `run-gates.mjs` — the gates named in `CLAUDE.md` rules 6 and 7 |
 

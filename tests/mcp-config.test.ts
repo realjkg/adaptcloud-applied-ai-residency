@@ -53,7 +53,11 @@ describe("MCP operator configuration", () => {
       ["MCP_CALL_TIMEOUT_MS", "600000"],
       ["MCP_MAX_ATTEMPTS", "9"],
       ["MCP_MAX_CALLS_PER_EXCHANGE", "0"],
-      ["MCP_MAX_RESULT_BYTES", "-1"]
+      ["MCP_MAX_RESULT_BYTES", "-1"],
+      ["MCP_MAX_REDIRECTS", "3"],
+      ["MCP_MAX_REDIRECTS", "-1"],
+      ["MCP_MAX_CONCURRENT_CALLS", "0"],
+      ["MCP_MAX_CONCURRENT_CALLS", "50"]
     ] as const) {
       const result = mcpConfigFromEnvironment({ ...enabled, [name]: badValue });
       expect(result.config.enabled, `${name} must disable the layer`).toBe(false);
@@ -63,6 +67,34 @@ describe("MCP operator configuration", () => {
 
   it("keeps the documented limit defaults when none are supplied", () => {
     expect(mcpConfigFromEnvironment(enabled).config.limits).toEqual(defaultMcpLimits);
+  });
+
+  it("parses the wire limits a live transport will need", () => {
+    const result = mcpConfigFromEnvironment({
+      ...enabled,
+      MCP_MAX_REDIRECTS: "1",
+      MCP_MAX_CONCURRENT_CALLS: "3",
+      MCP_ALLOWED_CONTENT_TYPES: "application/json, Application/CloudEvents+JSON"
+    });
+    expect(result.config.enabled).toBe(true);
+    expect(result.config.limits.maxRedirects).toBe(1);
+    expect(result.config.limits.maxConcurrentCalls).toBe(3);
+    expect(result.config.limits.allowedContentTypes).toEqual(["application/json", "application/cloudevents+json"]);
+  });
+
+  it("defaults to not following redirects and to exact JSON", () => {
+    const limits = mcpConfigFromEnvironment(enabled).config.limits;
+    expect(limits.maxRedirects).toBe(0);
+    expect(limits.allowedContentTypes).toEqual(["application/json"]);
+    expect(limits.maxConcurrentCalls).toBe(defaultMcpLimits.maxConcurrentCalls);
+  });
+
+  it("disables the layer rather than widening an unparseable content-type list", () => {
+    for (const bad of ["*/*", "application/json; charset=utf-8", "json", "a/b,a/b,a/b,a/b,a/b,a/b,a/b,a/b,a/b"]) {
+      const result = mcpConfigFromEnvironment({ ...enabled, MCP_ALLOWED_CONTENT_TYPES: bad });
+      expect(result.config.enabled, `${bad} must disable the layer`).toBe(false);
+      expect(result.notes.join(" ")).toContain("MCP_ALLOWED_CONTENT_TYPES");
+    }
   });
 
   it("warns when the egress allowlist is empty because every endpoint is then refused", () => {

@@ -119,8 +119,11 @@ function testResolver(secret = "st-token-2f9c-short-lived"): CredentialResolver 
   };
 }
 
+// A silent sink by default. tests/mcp-audit.test.ts injects a collector and asserts the event
+// contents there; here the events would only be console noise, and noisy test output is how a
+// student learns to stop reading it.
 function contextFor(transport: McpTransport, config: McpLayerConfig = allowedConfig(), resolver = testResolver()) {
-  return { config, runtime: development, transport, resolver, now: () => now };
+  return { config, runtime: development, transport, resolver, now: () => now, audit: () => {} };
 }
 
 describe("default deny", () => {
@@ -360,7 +363,7 @@ describe("credentials", () => {
       audience: awsHost,
       scopes: ["read"]
     })).resolves.toEqual({ ok: false, reason: "credential_unavailable" });
-    const context = { config: allowedConfig(), runtime: development, transport: stubTransport({}), now: () => now };
+    const context = { config: allowedConfig(), runtime: development, transport: stubTransport({}), now: () => now, audit: () => {} };
     expect(refusalOf(await callConnector(context, readRequest))).toBe("credential_unavailable");
   });
 
@@ -518,7 +521,8 @@ describe("structure of the connector modules", () => {
     "src/platform/mcp/policy.ts",
     "src/platform/mcp/credentials.ts",
     "src/platform/mcp/registry.ts",
-    "src/platform/mcp/transport.ts"
+    "src/platform/mcp/transport.ts",
+    "src/platform/mcp/audit.ts"
   ];
   const sources = moduleFiles.map((path) => [path, readFileSync(new URL(`../${path}`, import.meta.url), "utf8")] as const);
 
@@ -549,6 +553,82 @@ describe("structure of the connector modules", () => {
     const transportSource = sources.find(([path]) => path.endsWith("transport.ts"))?.[1] ?? "";
     expect(transportSource).toContain("owner approval");
     expect(transportSource).toContain("threat model");
+  });
+});
+
+describe("wire-level limits", () => {
+  it("refuses limits that a live transport would need and that are out of bounds", () => {
+    for (const limits of [
+      { ...defaultMcpLimits, maxRedirects: -1 },
+      { ...defaultMcpLimits, maxRedirects: 5 },
+      { ...defaultMcpLimits, maxConcurrentCalls: 0 },
+      { ...defaultMcpLimits, maxConcurrentCalls: 99 },
+      { ...defaultMcpLimits, allowedContentTypes: [] },
+      { ...defaultMcpLimits, allowedContentTypes: ["*/*"] },
+      { ...defaultMcpLimits, allowedContentTypes: ["application/json; charset=utf-8"] }
+    ]) {
+      expect(refusalOf(evaluateConnectorCall(allowedConfig({ limits }), readRequest, development, now))).toBe(
+        "limits_invalid"
+      );
+    }
+  });
+
+  it("carries the wire limits into the authorized call", () => {
+    const decision = evaluateConnectorCall(allowedConfig(), readRequest, development, now);
+    expect(decision.ok).toBe(true);
+    if (!decision.ok) throw new Error("expected allow");
+    expect(decision.allowed.maxRedirects).toBe(0);
+    expect(decision.allowed.allowedContentTypes).toEqual(["application/json"]);
+  });
+
+  it("refuses a redirected response because the reviewed host is no longer the host that answered", async () => {
+    const redirected = stubTransport({
+      "aws-mcp/aws.read_cost_summary": { ok: true, body: { usd: 12 }, redirectCount: 1 }
+    });
+    expect(refusalOf(await callConnector(contextFor(redirected), readRequest))).toBe("redirect_not_permitted");
+
+    // An operator who opts into one redirect gets exactly one.
+    const config = allowedConfig({ limits: { ...defaultMcpLimits, maxRedirects: 1 } });
+    expect((await callConnector(contextFor(redirected, config), readRequest)).ok).toBe(true);
+    const twice = stubTransport({
+      "aws-mcp/aws.read_cost_summary": { ok: true, body: { usd: 12 }, redirectCount: 2 }
+    });
+    expect(refusalOf(await callConnector(contextFor(twice, config), readRequest))).toBe("redirect_not_permitted");
+  });
+
+  it("refuses an unexpected content type instead of parsing it", async () => {
+    const html = stubTransport({
+      "aws-mcp/aws.read_cost_summary": { ok: true, body: { usd: 12 }, contentType: "text/html" }
+    });
+    expect(refusalOf(await callConnector(contextFor(html), readRequest))).toBe("content_type_not_allowed");
+
+    // A declared type with parameters is compared on the media type alone.
+    const json = stubTransport({
+      "aws-mcp/aws.read_cost_summary": { ok: true, body: { usd: 12 }, contentType: "Application/JSON; charset=utf-8" }
+    });
+    expect((await callConnector(contextFor(json), readRequest)).ok).toBe(true);
+  });
+
+  it("bounds the number of connector calls in flight at once", async () => {
+    let release: (() => void) | undefined;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const slow = stubTransport({
+      "aws-mcp/aws.read_cost_summary": async () => {
+        await blocked;
+        return { ok: true, body: { usd: 12 } };
+      }
+    });
+    const config = allowedConfig({ limits: { ...defaultMcpLimits, maxConcurrentCalls: 1 } });
+    const context = contextFor(slow, config);
+    const first = callConnector(context, readRequest);
+    const second = callConnector(context, readRequest);
+    expect(refusalOf(await second)).toBe("concurrency_limit_reached");
+    release?.();
+    expect((await first).ok).toBe(true);
+    // The slot is released, so the next call is admitted.
+    expect((await callConnector(context, readRequest)).ok).toBe(true);
   });
 });
 

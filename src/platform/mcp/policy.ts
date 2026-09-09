@@ -98,13 +98,33 @@ function approvalFailure(
   return undefined;
 }
 
+/** Exact `type/subtype`: no wildcard, no `; charset=` parameter, so a match cannot be widened. */
+const contentTypePattern = /^[a-z0-9][a-z0-9.+-]*\/[a-z0-9][a-z0-9.+-]*$/;
+
+function contentTypesInvalid(values: readonly string[]): boolean {
+  if (!Array.isArray(values) || values.length < 1 || values.length > 8) return true;
+  return values.some((value) => typeof value !== "string" || !contentTypePattern.test(value));
+}
+
 function limitsInvalid(config: McpLayerConfig): boolean {
-  const { callTimeoutMs, maxAttempts, maxCallsPerExchange, maxResultBytes } = config.limits;
+  const {
+    callTimeoutMs,
+    maxAttempts,
+    maxCallsPerExchange,
+    maxResultBytes,
+    maxRedirects,
+    allowedContentTypes,
+    maxConcurrentCalls
+  } = config.limits;
   return (
     !Number.isInteger(callTimeoutMs) || callTimeoutMs < 1 || callTimeoutMs > 30_000 ||
     !Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 3 ||
     !Number.isInteger(maxCallsPerExchange) || maxCallsPerExchange < 1 || maxCallsPerExchange > 16 ||
-    !Number.isInteger(maxResultBytes) || maxResultBytes < 1 || maxResultBytes > 262_144
+    !Number.isInteger(maxResultBytes) || maxResultBytes < 1 || maxResultBytes > 262_144 ||
+    // Following a redirect is opt-in and narrowly bounded: the reviewed host must stay the host.
+    !Number.isInteger(maxRedirects) || maxRedirects < 0 || maxRedirects > 2 ||
+    contentTypesInvalid(allowedContentTypes) ||
+    !Number.isInteger(maxConcurrentCalls) || maxConcurrentCalls < 1 || maxConcurrentCalls > 8
   );
 }
 
@@ -195,6 +215,8 @@ export function evaluateConnectorCall(
     timeoutMs: config.limits.callTimeoutMs,
     maxAttempts: retryPermitted ? config.limits.maxAttempts : 1,
     maxResultBytes: config.limits.maxResultBytes,
+    maxRedirects: config.limits.maxRedirects,
+    allowedContentTypes: [...config.limits.allowedContentTypes],
     ...(approvalId === undefined ? {} : { approvalId })
   };
   return { ok: true, allowed };

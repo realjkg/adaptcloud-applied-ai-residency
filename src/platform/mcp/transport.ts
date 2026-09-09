@@ -26,8 +26,22 @@ export interface McpTransportRequest {
   readonly credential: ShortLivedCredential;
 }
 
+/**
+ * A successful transport reports what it saw on the wire alongside the body. `contentType` and
+ * `redirectCount` are checked by `registry.ts`, not here, so the stub can exercise both refusals
+ * today and a future live transport inherits the check instead of reimplementing it. Both are
+ * optional because a transport that cannot observe them must not be forced to invent a value;
+ * what it does report is enforced.
+ */
 export type McpTransportResult =
-  | { readonly ok: true; readonly body: unknown }
+  | {
+      readonly ok: true;
+      readonly body: unknown;
+      /** Media type only, no parameters. `application/json; charset=utf-8` is normalized by the caller. */
+      readonly contentType?: string;
+      /** Redirects followed to reach this body. The default limit is zero. */
+      readonly redirectCount?: number;
+    }
   | { readonly ok: false; readonly reason: "transport_unavailable" | "transport_timeout" | "transport_refused" };
 
 export interface McpTransport {

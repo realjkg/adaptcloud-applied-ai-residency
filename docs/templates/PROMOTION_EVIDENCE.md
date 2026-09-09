@@ -16,6 +16,7 @@
 - Deterministic controls versus Claude reasoning:
 - Architecture decision record:
 - Threat model:
+- Connector threat model (`docs/adr/0002-mcp-connector-threat-model.md`) reviewed by:
 
 ## Environment reviews
 
@@ -46,6 +47,8 @@
 - Restore drill, RTO and RPO:
 - Model and cloud cost estimate:
 - Sanitized trace reference:
+- MCP connector state per environment (`MCP_CONNECTORS_ENABLED`, allowed hosts, credential mode):
+- Connector review decision — remains disabled, or the owner approval and provider role that permit egress:
 - Terraform destroy-plan reference:
 - Empty-state and residual-inventory references:
 - Billing-console cleanup verification:
