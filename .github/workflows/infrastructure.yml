@@ -176,7 +176,7 @@ jobs:
           APPLICATION_NAME: ${{ vars.APPLICATION_NAME || 'applied-ai-residency' }}
           CLEANUP_REPORT_PATH: infra/aws/cleanup-residuals.json
         run: bash scripts/verify-sandbox-cleanup.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: aws-${{ inputs.environment }}-${{ inputs.operation }}-${{ github.run_id }}
@@ -254,7 +254,7 @@ jobs:
           APPLICATION_NAME: ${{ vars.APPLICATION_NAME || 'applied-ai-residency' }}
           CLEANUP_REPORT_PATH: infra/gcp/cleanup-residuals.json
         run: bash scripts/verify-sandbox-cleanup.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: gcp-${{ inputs.environment }}-${{ inputs.operation }}-${{ github.run_id }}
