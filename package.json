@@ -30,6 +30,7 @@
     "readiness:qa-reference": "npm run build && node --env-file=config/qa-reference.env dist/scripts/check-readiness.js",
     "readiness:staging-reference": "npm run build && node --env-file=config/staging-reference.env dist/scripts/check-readiness.js",
     "readiness:production-reference": "npm run build && node --env-file=config/production-reference.env dist/scripts/check-readiness.js",
+    "security:static": "node scripts/check-static-security.mjs",
     "skills:check": "vitest run tests/skills.test.ts",
     "skills:boundaries": "node .claude/skills/cca-f-architecture-review/scripts/scan-boundaries.mjs",
     "skills:pillars": "node .claude/skills/well-architected-review/scripts/pillar-review.mjs --profile=all",
