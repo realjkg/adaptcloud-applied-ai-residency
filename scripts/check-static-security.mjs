@@ -28,6 +28,8 @@ const forbiddenJavaScript = [
   ["eval", /\beval\s*\(/],
   ["Function constructor", /\bnew\s+Function\s*\(/],
   ["srcdoc assignment", /\.\s*srcdoc\s*=/],
+  ["inline style mutation", /\.\s*style(?:\.|\[)/],
+  ["style attribute injection", /setAttribute\s*\(\s*["'`]style["'`]/i],
   ["event-handler attribute injection", /setAttribute\s*\(\s*["'`]on[a-z]+/i]
 ];
 
@@ -44,6 +46,7 @@ for (const file of publicFiles) {
 
   if (extension === ".html") {
     if (/\son[a-z]+\s*=/i.test(source)) fail(`${file} contains an inline event handler`);
+    if (/\sstyle\s*=/i.test(source)) fail(`${file} contains an inline style attribute`);
     if (/\b(?:href|src)\s*=\s*["']\s*javascript:/i.test(source)) fail(`${file} contains a javascript: URL`);
     if (/\bsrcdoc\s*=/i.test(source)) fail(`${file} contains srcdoc`);
 
