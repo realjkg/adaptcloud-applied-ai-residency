@@ -38,20 +38,37 @@ const traceScenario = document.querySelector("#trace-scenario");
 const traceStatus = document.querySelector("#trace-status");
 const scenarioDescription = document.querySelector("#scenario-description");
 
+function createStageItem(stage, index) {
+  const item = document.createElement("li");
+  item.className = `stage-item${index === selectedStage ? " selected" : ""}${observed.has(stage.id) ? " observed" : ""}`;
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "stage-button";
+  button.dataset.stage = String(index);
+
+  const copy = document.createElement("span");
+  copy.className = "stage-copy";
+
+  const title = document.createElement("strong");
+  title.textContent = stage.title;
+
+  const detail = document.createElement("small");
+  detail.textContent = stage.detail;
+
+  const state = document.createElement("span");
+  state.className = "stage-state";
+  state.textContent = observed.has(stage.id) ? "Observed" : "Pending";
+
+  copy.append(title, detail);
+  button.append(copy, state);
+  item.append(button);
+  return item;
+}
+
 function renderStages() {
-  stageList.replaceChildren(...stages.map((stage, index) => {
-    const item = document.createElement("li");
-    item.className = `stage-item${index === selectedStage ? " selected" : ""}${observed.has(stage.id) ? " observed" : ""}`;
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "stage-button";
-    button.dataset.stage = String(index);
-    button.innerHTML = `<span class="stage-copy"><strong>${stage.title}</strong><small>${stage.detail}</small></span><span class="stage-state">${observed.has(stage.id) ? "Observed" : "Pending"}</span>`;
-    item.append(button);
-    return item;
-  }));
-  const percent = observed.size / stages.length * 100;
-  progressBar.style.width = `${percent}%`;
+  stageList.replaceChildren(...stages.map(createStageItem));
+  progressBar.dataset.progress = String(observed.size);
   progressLabel.textContent = `${observed.size} of ${stages.length} observed`;
 }
 
@@ -95,9 +112,14 @@ function observeSelectedStage() {
 }
 
 document.querySelector(".scenario-tabs").addEventListener("click", event => {
-  const button = event.target.closest("[data-scenario]");
+  const target = event.target instanceof Element ? event.target : null;
+  const button = target?.closest("[data-scenario]");
   if (!button) return;
-  selectedScenario = button.dataset.scenario;
+
+  const nextScenario = button.dataset.scenario;
+  if (!nextScenario || !Object.hasOwn(scenarios, nextScenario)) return;
+
+  selectedScenario = nextScenario;
   document.querySelectorAll("[data-scenario]").forEach(tab => {
     const active = tab === button;
     tab.classList.toggle("active", active);
@@ -110,9 +132,14 @@ document.querySelector(".scenario-tabs").addEventListener("click", event => {
 });
 
 stageList.addEventListener("click", event => {
-  const button = event.target.closest("[data-stage]");
+  const target = event.target instanceof Element ? event.target : null;
+  const button = target?.closest("[data-stage]");
   if (!button) return;
-  selectedStage = Number(button.dataset.stage);
+
+  const nextStage = Number.parseInt(button.dataset.stage ?? "", 10);
+  if (!Number.isInteger(nextStage) || nextStage < 0 || nextStage >= stages.length) return;
+
+  selectedStage = nextStage;
   renderStages();
 });
 

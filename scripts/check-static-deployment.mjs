@@ -25,4 +25,31 @@ if (!body.includes("Adapt Cloud Applied AI Engineer Residency")) {
   throw new Error("deployment did not return the expected static walkthrough");
 }
 
-process.stdout.write(`${JSON.stringify({ status: "healthy", url: response.url })}\n`);
+const requiredHeaders = {
+  "content-security-policy": [
+    "default-src 'self'",
+    "script-src 'self'",
+    "script-src-attr 'none'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+    "require-trusted-types-for 'script'",
+    "trusted-types 'none'"
+  ],
+  "referrer-policy": ["no-referrer"],
+  "x-content-type-options": ["nosniff"],
+  "x-frame-options": ["DENY"],
+  "cross-origin-opener-policy": ["same-origin"],
+  "cross-origin-resource-policy": ["same-origin"]
+};
+
+for (const [name, expectedValues] of Object.entries(requiredHeaders)) {
+  const actual = response.headers.get(name);
+  if (!actual) throw new Error(`deployment is missing ${name}`);
+  for (const expected of expectedValues) {
+    if (!actual.includes(expected)) {
+      throw new Error(`deployment ${name} is missing ${expected}`);
+    }
+  }
+}
+
+process.stdout.write(`${JSON.stringify({ status: "healthy", securityHeaders: "verified", url: response.url })}\n`);

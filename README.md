@@ -2,6 +2,8 @@
 
 A production-shaped learning repository for developers becoming client-ready applied AI engineers. It combines Claude architecture, agentic development, automated testing, AI Tokenomics, cloud operations, security governance, and evidence-backed delivery.
 
+The repository is open source under Apache 2.0. Fork it, build it, inspect the controls, and change it. The learning goal is not to copy a finished prompt: it is to understand why the system behaves safely and how the evidence supports that claim.
+
 The Vercel surface is intentionally a static engineering walkthrough. It does not deploy infrastructure, invoke Claude, export telemetry, or hold credentials. See `docs/VERCEL_WALKTHROUGH.md` for that boundary.
 
 The included sample agent turns a synthetic client intake into:
@@ -10,6 +12,35 @@ The included sample agent turns a synthetic client intake into:
 - security and governance findings;
 - an optional Claude-assisted architecture recommendation; and
 - evidence metadata suitable for an engagement review.
+
+## Fork, build, and verify
+
+Start from your own fork so your code, credentials, cloud resources, state, registry, telemetry, and billing stay under your control.
+
+```bash
+git clone https://github.com/YOUR_GITHUB_USER/adaptcloud-applied-ai-residency.git
+cd adaptcloud-applied-ai-residency
+nvm use
+npm ci
+npm run security:static
+npm run check
+npm run test:unit
+npm run eval
+npm run lab:simulate
+```
+
+The default path is credential-free and deterministic. No Anthropic key or cloud credential is required to learn the architecture, run the scenarios, inspect the evidence, or execute the test suite. Live Claude testing is explicitly opt-in and server-side only.
+
+The public browser surface is deliberately constrained: it has no client-side secrets, does not render dynamic HTML strings, is protected by a restrictive Content Security Policy, and is checked in CI for common DOM-XSS execution sinks. `npm run smoke:deployment` verifies the deployed security headers as well as the expected static page.
+
+This is intentionally not a shortcut lab. Before treating a change as complete, trace it through the repository references and gates:
+
+1. `SECURITY.md` — trust boundaries, secret handling, logging, human approval, and fail-closed behavior.
+2. `docs/AGENT_PATTERNS.md` — supported agent architectures and control placement.
+3. `docs/MCP_CONNECTORS.md` — connector boundaries, egress, and tool-result handling.
+4. `docs/WELL_ARCHITECTED.md` — security, resilience, reliability, cost, sustainability, and operations evidence.
+5. `docs/CLOUD_LAB.md` and `docs/STUDENT_BYOC.md` — cloud exercises with the learner's own account and explicit stop conditions.
+6. `.claude/skills/` — executable architecture, tokenomics, policy, evidence, and definition-of-done checks.
 
 Run all three credential-free lab simulations across both cloud contracts:
 
@@ -24,6 +55,7 @@ This exercises commercial, payments, and insurance deterministic policy behavior
 ```bash
 nvm use
 npm ci
+npm run security:static
 npm run check
 npm test
 npm run eval
