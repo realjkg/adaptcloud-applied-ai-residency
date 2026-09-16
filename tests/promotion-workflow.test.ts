@@ -17,7 +17,7 @@ describe("guided environment promotion workflow", () => {
     expect(workflow).toContain("for environment in development sandbox qa staging production");
     expect(workflow).toContain("npm run test:unit");
     expect(workflow).toContain("npm run lab:simulate");
-    expect(workflow).toContain("actions/upload-artifact@v4");
+    expect(workflow).toContain("actions/upload-artifact@v7");
     expect(workflow).not.toContain("id-token: write");
     expect(workflow).not.toMatch(/terraform\s+(?:-chdir=[^\s]+\s+)?apply/);
   });
