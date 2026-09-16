@@ -25,6 +25,7 @@ describe("student handoff acceptance", () => {
     expect(script).toContain("scenarios/unknown/assess");
     expect(script).toContain('test "$status" = "401"');
     expect(script).toContain('"type":"service.shutdown"');
+    expect(dockerfile).toContain("apt-get install --only-upgrade -y --no-install-recommends libpcre2-8-0");
     expect(dockerfile).toContain("rm -rf /usr/local/lib/node_modules");
     expect(dockerfile).toContain("USER node");
   });
