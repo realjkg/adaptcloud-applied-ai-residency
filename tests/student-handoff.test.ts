@@ -25,7 +25,36 @@ describe("student handoff acceptance", () => {
     expect(script).toContain("scenarios/unknown/assess");
     expect(script).toContain('test "$status" = "401"');
     expect(script).toContain('"type":"service.shutdown"');
-    expect(dockerfile).toContain("apt-get install --only-upgrade -y --no-install-recommends libpcre2-8-0");
+    const dockerfileLines = dockerfile.split("\n");
+    const runtimeStageIndex = dockerfileLines.findIndex((line) => /^\s*FROM\s+.+\s+AS\s+runtime\s*$/i.test(line));
+    expect(runtimeStageIndex).toBeGreaterThanOrEqual(0);
+    const runInstructions: string[] = [];
+    for (let i = runtimeStageIndex + 1; i < dockerfileLines.length; i += 1) {
+      const line = dockerfileLines[i];
+      if (line === undefined) {
+        continue;
+      }
+      if (/^\s*FROM\s+/i.test(line)) {
+        break;
+      }
+      if (/^\s*RUN\s+/i.test(line)) {
+        let instruction = line;
+        while (instruction.trimEnd().endsWith("\\") && i + 1 < dockerfileLines.length) {
+          i += 1;
+          const continuationLine = dockerfileLines[i];
+          if (continuationLine === undefined) {
+            break;
+          }
+          instruction = `${instruction}\n${continuationLine}`;
+        }
+        runInstructions.push(instruction);
+      }
+    }
+    const runtimeInstallInstruction = runInstructions.find((instruction) =>
+      /apt-get\s+install/i.test(instruction) && instruction.includes("libpcre2-8-0"),
+    );
+    expect(runtimeInstallInstruction).toBeDefined();
+    expect(runtimeInstallInstruction).toContain("--only-upgrade");
     expect(dockerfile).toContain("rm -rf /usr/local/lib/node_modules");
     expect(dockerfile).toContain("USER node");
   });
