@@ -68,8 +68,7 @@ function createStageItem(stage, index) {
 
 function renderStages() {
   stageList.replaceChildren(...stages.map(createStageItem));
-  const percent = observed.size / stages.length * 100;
-  progressBar.style.width = `${percent}%`;
+  progressBar.dataset.progress = String(observed.size);
   progressLabel.textContent = `${observed.size} of ${stages.length} observed`;
 }
 
