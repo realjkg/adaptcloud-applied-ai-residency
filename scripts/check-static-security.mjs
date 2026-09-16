@@ -1,7 +1,8 @@
 import { readFile, readdir } from "node:fs/promises";
 import { extname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = new URL("..", import.meta.url).pathname;
+const root = fileURLToPath(new URL("..", import.meta.url));
 const publicDir = join(root, "public");
 
 async function walk(directory) {
@@ -30,7 +31,8 @@ const forbiddenJavaScript = [
   ["event-handler attribute injection", /setAttribute\s*\(\s*["'`]on[a-z]+/i]
 ];
 
-for (const file of await walk(publicDir)) {
+const publicFiles = await walk(publicDir);
+for (const file of publicFiles) {
   const extension = extname(file);
   const source = await readFile(file, "utf8");
 
@@ -97,4 +99,4 @@ for (const [key, expected] of Object.entries(requiredHeaders)) {
   if (header(key) !== expected) fail(`${key} must be ${expected}`);
 }
 
-process.stdout.write(`${JSON.stringify({ status: "ok", filesChecked: (await walk(publicDir)).length })}\n`);
+process.stdout.write(`${JSON.stringify({ status: "ok", filesChecked: publicFiles.length })}\n`);
