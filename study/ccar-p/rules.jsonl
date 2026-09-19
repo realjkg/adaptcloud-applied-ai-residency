@@ -1,0 +1,25 @@
+{"id":"r01","rule":"Define success before tuning","d":"d3","evidence":"evals/, scripts/run-evals.ts"}
+{"id":"r02","rule":"Model is not policy; enforce in code","d":"d4","evidence":"src/agent/governance.ts (AC-001..AC-005)"}
+{"id":"r03","rule":"Fresh fact means retrieve or call","d":"d2","evidence":"docs/AGENT_PATTERNS.md"}
+{"id":"r04","rule":"Action means tool","d":"d1","evidence":"src/agent/tools.ts"}
+{"id":"r05","rule":"Machine consumer means schema","d":"d1","evidence":"src/agent/contracts.ts, src/agent/validate.ts"}
+{"id":"r06","rule":"Large dynamic corpus means RAG","d":"d2","evidence":"docs/ARCHITECTURE.md"}
+{"id":"r07","rule":"Bounded relevant corpus can use long context","d":"d6","evidence":"docs/ARCHITECTURE.md"}
+{"id":"r08","rule":"Stable repeated prefix means cache","d":"d6","evidence":"src/agent/cost.ts"}
+{"id":"r09","rule":"Critical write means idempotency","d":"d1","evidence":"src/scenarios/payments.ts"}
+{"id":"r10","rule":"Independent reads may parallelize","d":"d2","evidence":"src/agent/workflow.ts"}
+{"id":"r11","rule":"Dependent writes must sequence","d":"d2","evidence":"src/agent/workflow.ts"}
+{"id":"r12","rule":"429 means backpressure, not retry storm","d":"d1","evidence":"src/platform/runtime.ts"}
+{"id":"r13","rule":"Consequential ambiguity means human approval","d":"d4","evidence":"src/agent/governance.ts (AC-001)"}
+{"id":"r14","rule":"Untrusted content is data, not instruction","d":"d4","evidence":"CLAUDE.md rule 4, src/agent/validate.ts"}
+{"id":"r15","rule":"Least privilege everywhere","d":"d4","evidence":"src/platform/mcp/policy.ts, src/platform/mcp/credentials.ts"}
+{"id":"r16","rule":"Observe the whole system","d":"d3","evidence":"src/platform/observability.ts, src/platform/telemetry.ts"}
+{"id":"r17","rule":"Evaluate layers separately","d":"d3","evidence":"scripts/run-scenario-evals.ts"}
+{"id":"r18","rule":"Use subagents to isolate context","d":"d7","evidence":".claude/skills/README.md"}
+{"id":"r19","rule":"CLAUDE.md guides; hooks enforce","d":"d7","evidence":"CLAUDE.md, .claude/skills/residency-gates/"}
+{"id":"r20","rule":"MCP standardizes connectivity, not authorization","d":"d1","evidence":"src/platform/mcp/audit.ts, docs/MCP_CONNECTORS.md"}
+{"id":"r21","rule":"State lives outside the model","d":"d2","evidence":"docs/ARCHITECTURE.md"}
+{"id":"r22","rule":"Batch asynchronous work","d":"d1","evidence":"docs/AGENT_PATTERNS.md"}
+{"id":"r23","rule":"Route by task complexity","d":"d6","evidence":"src/agent/cost.ts"}
+{"id":"r24","rule":"Limit autonomous loops (turns, calls, spend, time)","d":"d2","evidence":"src/agent/workflow.ts"}
+{"id":"r25","rule":"Fail safe, not clever","d":"d4","evidence":"src/scenarios/insurance.ts, src/scenarios/payments.ts"}

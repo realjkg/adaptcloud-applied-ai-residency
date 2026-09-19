@@ -38,6 +38,7 @@
     "skills:evidence": "node .claude/skills/promotion-evidence/scripts/evaluate-evidence.mjs --environment=all",
     "skills:probe": "node .claude/skills/scenario-policy/scripts/probe-invariants.mjs",
     "skills:gates": "node .claude/skills/residency-gates/scripts/run-gates.mjs",
+    "study:readiness": "node scripts/study-readiness.mjs",
     "test": "npm run test:unit",
     "test:unit": "vitest run",
     "test:regression": "node scripts/run-regression-gate.ts",
