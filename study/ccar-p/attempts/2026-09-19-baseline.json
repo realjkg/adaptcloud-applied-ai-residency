@@ -1,0 +1,15 @@
+{
+  "id": "2026-09-19-baseline",
+  "date": "2026-09-19",
+  "mode": "open-book baseline",
+  "note": "Example attempt record. Responses are the option chosen per question id; the script grades against the bank so a score cannot be self-reported.",
+  "responses": {
+    "q01": "B", "q02": "B", "q03": "B", "q04": "B",
+    "q05": "B", "q06": "A", "q07": "B", "q08": "C",
+    "q09": "B", "q10": "A", "q11": "B", "q12": "B",
+    "q13": "A", "q14": "B", "q15": "B", "q16": "B",
+    "q17": "A", "q18": "A", "q19": "B", "q20": "B",
+    "q21": "B", "q22": "B", "q23": "B", "q24": "B",
+    "q25": "B", "q26": "B", "q27": "B", "q28": "B"
+  }
+}

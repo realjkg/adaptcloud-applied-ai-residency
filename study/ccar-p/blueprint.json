@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "1.0",
+  "exam": "Claude Certified Architect - Professional",
+  "code": "CCAR-P",
+  "format": { "items": 63, "minutes": 120, "scaleMin": 100, "scaleMax": 1000, "passScaled": 720 },
+  "provenance": {
+    "status": "unverified",
+    "note": "Domain weights transcribed from a third-party reproduction of Anthropic Exam Guide v1.0 (effective July 2026). Replace with the official guide's table before treating any readiness figure as evidence.",
+    "replaceWith": "Anthropic Academy candidate guide for CCAR-P"
+  },
+  "domains": [
+    { "id": "d1", "name": "Integration", "weight": 0.19 },
+    { "id": "d2", "name": "Solution Design & Architecture", "weight": 0.17 },
+    { "id": "d3", "name": "Evaluation, Testing & Optimization", "weight": 0.16 },
+    { "id": "d4", "name": "Governance, Safety & Risk Management", "weight": 0.14 },
+    { "id": "d5", "name": "Stakeholder Communication & Lifecycle", "weight": 0.14 },
+    { "id": "d6", "name": "Claude Models, Prompting & Context", "weight": 0.13 },
+    { "id": "d7", "name": "Developer Productivity & Enablement", "weight": 0.07 }
+  ]
+}
