@@ -62,7 +62,7 @@ jobs:
       - name: Build candidate image
         run: docker build -t student-residency:${{ github.sha }} .
       - name: Generate SPDX JSON SBOM
-        uses: anchore/sbom-action@v0.24.2
+        uses: anchore/sbom-action@v0.24.3
         with:
           image: student-residency:${{ github.sha }}
           format: spdx-json
