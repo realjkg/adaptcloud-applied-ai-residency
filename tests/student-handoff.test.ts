@@ -3,6 +3,12 @@ import { describe, expect, it } from "vitest";
 
 const read = (path: string): string => readFileSync(path, "utf8");
 
+// Action refs (owner/repo@ref) declared in a workflow's `uses:` lines.
+const actionRefs = (workflow: string): string[] =>
+  [...workflow.matchAll(/uses:\s*(\S+)/g)]
+    .map((match) => match[1] ?? "")
+    .filter((ref) => ref.includes("@"));
+
 describe("student handoff acceptance", () => {
   it("proves the clean-room path without inherited provider credentials", () => {
     const workflow = read(".github/workflows/student-handoff.yml");
@@ -40,10 +46,28 @@ describe("student handoff acceptance", () => {
 
   it("generates an SBOM and blocks high-severity supply-chain findings", () => {
     const workflow = read(".github/workflows/student-handoff.yml");
-    expect(workflow).toContain("anchore/sbom-action@v0.24.2");
-    expect(workflow).toContain("aquasecurity/trivy-action@v0.36.0");
+    // Derived, not restated: expectations come from the workflow file itself,
+    // so a Dependabot bump can never split this test from CI again.
+    const uses = actionRefs(workflow);
+    expect(uses.some((ref) => ref.startsWith("anchore/sbom-action@"))).toBe(true);
+    expect(uses.some((ref) => ref.startsWith("aquasecurity/trivy-action@"))).toBe(true);
     expect(workflow).toContain("scanners: vuln,secret,misconfig");
     expect(workflow).toContain("severity: HIGH,CRITICAL");
     expect(workflow).toContain("exit-code: 1");
+  });
+
+  it("pins every action ref to a version tag or full commit SHA", () => {
+    const uses = actionRefs(read(".github/workflows/student-handoff.yml"));
+    expect(uses.length).toBeGreaterThan(0);
+    for (const ref of uses) {
+      const pinned = ref.slice(ref.lastIndexOf("@") + 1);
+      const thirdParty = !ref.startsWith("actions/");
+      // First-party actions may track a major tag; third-party actions must
+      // pin a full vX.Y.Z tag or a 40-char SHA — never a floating branch ref.
+      const shape = thirdParty
+        ? /^v\d+\.\d+\.\d+$|^[0-9a-f]{40}$/
+        : /^v\d+(\.\d+)*$|^[0-9a-f]{40}$/;
+      expect(pinned, `unpinned action ref: ${ref}`).toMatch(shape);
+    }
   });
 });
