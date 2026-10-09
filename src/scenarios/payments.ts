@@ -105,6 +105,9 @@ export const paymentsModule: ScenarioModule<"payments", PaymentsLabInput> = {
     recoveryPointObjective: "5 minutes",
     failurePosture: "Fail closed; preserve immutable event references; never move funds",
     costUnit: "cost per reconciled exception",
-    retentionPosture: "Governed record schedule; no PAN, CVV, or account data"
+    retentionPosture: "Governed record schedule; no PAN, CVV, or account data",
+    rollbackTrigger:
+      "Stop immediately and roll back on any ledger-integrity anomaly (an unsettled capture imbalance or duplicate idempotency key that policy missed) or any signal of non-simulated funds movement; every envelope must keep fundsMoved: false",
+    operationalOwner: "Kristian Gonzalez (repo maintainer, Adapt Cloud)"
   }
 };

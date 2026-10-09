@@ -50,6 +50,10 @@ export interface ScenarioOperatingEnvelope {
   failurePosture: string;
   costUnit: string;
   retentionPosture: string;
+  /** Concrete observable condition that rolls this scenario's deployment back. Owner confirms final values. */
+  rollbackTrigger: string;
+  /** Accountable operational owner for this scenario. Owner may rename per scenario. */
+  operationalOwner: string;
 }
 
 /** One scenario's whole surface: its parser, its deterministic policy, and what it may refuse. */

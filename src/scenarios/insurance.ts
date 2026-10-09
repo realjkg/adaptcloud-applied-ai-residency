@@ -82,6 +82,9 @@ export const insuranceModule: ScenarioModule<"insurance", InsuranceLabInput> = {
     recoveryPointObjective: "1 hour",
     failurePosture: "Preserve provenance and missing evidence; human adjudication only",
     costUnit: "cost per reviewed intake",
-    retentionPosture: "Policy- and jurisdiction-approved schedule; narratives excluded from logs"
+    retentionPosture: "Policy- and jurisdiction-approved schedule; narratives excluded from logs",
+    rollbackTrigger:
+      "Roll back when any material statement loses its source citation (a provenance regression) or when the claim-adjudication error rate across evals and probes exceeds 10%",
+    operationalOwner: "Kristian Gonzalez (repo maintainer, Adapt Cloud)"
   }
 };

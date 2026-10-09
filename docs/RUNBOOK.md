@@ -1,6 +1,6 @@
 # Operational runbook
 
-This runbook covers the shared service boundary. Scenario owners must add customer-specific escalation contacts, data rules, SLOs, and recovery objectives before deployment. Never paste request bodies, prompts, credentials, transaction details, or claim narratives into tickets or chat.
+This runbook covers the shared service boundary. Every scenario names an accountable operational owner in its operating envelope (`operationalOwner` in `src/scenarios/*.ts`; currently Kristian Gonzalez, repo maintainer, Adapt Cloud, for all three). That owner must add customer-specific escalation contacts, data rules, SLOs, and recovery objectives before deployment. Never paste request bodies, prompts, credentials, transaction details, or claim narratives into tickets or chat.
 
 ## Triage order
 
@@ -38,6 +38,7 @@ This runbook covers the shared service boundary. Scenario owners must add custom
 ## Rollback
 
 - Trigger on failed readiness, canary health, SLO burn, security-policy failure, or unexpected cost regression.
+- Per-scenario triggers are pinned in each scenario's operating envelope (`rollbackTrigger` in `src/scenarios/commercial.ts`, `src/scenarios/payments.ts`, `src/scenarios/insurance.ts`) and mirrored in the overlay table in `docs/WELL_ARCHITECTED.md`: payments stops immediately on any ledger-integrity anomaly or signal of non-simulated funds movement; commercial rolls back on assumption-error or unexpected blocked-finding rates above 10% in an eval or probe run, or any envelope reporting `externalActionTaken: true`; insurance rolls back on any provenance regression or adjudication-error rates above 10%.
 - Redeploy the last verified image digest and its compatible configuration; do not rebuild an old source revision.
 - Run live, ready, deterministic scenario, audit-delivery, and authorization smoke tests.
 

@@ -86,6 +86,9 @@ export const commercialModule: ScenarioModule<"commercial", CommercialLabInput> 
     recoveryPointObjective: "24 hours",
     failurePosture: "Queue drafts; never schedule or purchase automatically",
     costUnit: "cost per reviewed opportunity",
-    retentionPosture: "Short-lived operational evidence; customer-approved schedule"
+    retentionPosture: "Short-lived operational evidence; customer-approved schedule",
+    rollbackTrigger:
+      "Roll back when the scenario's eval or adversarial-probe assumption-error or unexpected blocked-finding rate exceeds 10% in a run, or when any envelope reports externalActionTaken: true",
+    operationalOwner: "Kristian Gonzalez (repo maintainer, Adapt Cloud)"
   }
 };

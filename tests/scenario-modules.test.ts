@@ -90,6 +90,14 @@ describe("scenario modules", () => {
     expect(durationMinutes(envelope.recoveryTimeObjective)).toBeGreaterThan(0);
     expect(durationMinutes(envelope.recoveryPointObjective)).toBeGreaterThan(0);
     expect(envelope.costUnit.startsWith("cost per ")).toBe(true);
+    // Pinned so a scenario cannot ship without an observable rollback condition or an owner.
+    expect(envelope.rollbackTrigger.trim().length).toBeGreaterThan(0);
+    expect(envelope.operationalOwner).toBe("Kristian Gonzalez (repo maintainer, Adapt Cloud)");
+  });
+
+  it("gives each scenario its own rollback trigger", () => {
+    const triggers = modules.map((module) => module.envelope.rollbackTrigger);
+    expect(new Set(triggers).size).toBe(triggers.length);
   });
 
   it("gives the stricter availability target the tighter recovery objectives", () => {
