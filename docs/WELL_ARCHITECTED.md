@@ -29,11 +29,11 @@ The service reads the same environment contract everywhere. `src/platform/runtim
 
 These values are safe starting assumptions for exercises, not customer commitments. A real engagement replaces them through an architecture decision record and load/recovery evidence.
 
-| Scenario | Availability target | RTO / RPO starting point | Failure posture | Cost unit | Retention posture |
-|---|---:|---|---|---|---|
-| Commercial operations | 99.5% | 4 hours / 24 hours | Queue drafts; never schedule or purchase automatically | cost per reviewed opportunity | Short-lived operational evidence; customer-approved schedule |
-| Banking and payments | 99.9% | 30 minutes / 5 minutes | Fail closed; preserve immutable event references; never move funds | cost per reconciled exception | Governed record schedule; no PAN, CVV, or account data |
-| Insurance claims | 99.5% | 4 hours / 1 hour | Preserve provenance and missing evidence; human adjudication only | cost per reviewed intake | Policy- and jurisdiction-approved schedule; narratives excluded from logs |
+| Scenario | Availability target | RTO / RPO starting point | Failure posture | Cost unit | Retention posture | Rollback trigger | Operational owner |
+|---|---:|---|---|---|---|---|---|
+| Commercial operations | 99.5% | 4 hours / 24 hours | Queue drafts; never schedule or purchase automatically | cost per reviewed opportunity | Short-lived operational evidence; customer-approved schedule | Assumption-error or unexpected blocked-finding rate above 10% in an eval/probe run, or any envelope reporting `externalActionTaken: true` | Kristian Gonzalez (repo maintainer, Adapt Cloud) |
+| Banking and payments | 99.9% | 30 minutes / 5 minutes | Fail closed; preserve immutable event references; never move funds | cost per reconciled exception | Governed record schedule; no PAN, CVV, or account data | Any ledger-integrity anomaly or signal of non-simulated funds movement — stop immediately | Kristian Gonzalez (repo maintainer, Adapt Cloud) |
+| Insurance claims | 99.5% | 4 hours / 1 hour | Preserve provenance and missing evidence; human adjudication only | cost per reviewed intake | Policy- and jurisdiction-approved schedule; narratives excluded from logs | Any provenance regression or adjudication-error rate above 10% | Kristian Gonzalez (repo maintainer, Adapt Cloud) |
 
 ## Platform adapter contract
 
