@@ -1,0 +1,35 @@
+name: CodeQL analysis
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly on Wednesdays, off the top-of-hour cron congestion.
+    - cron: "23 4 * * 3"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze javascript-typescript
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # SARIF upload is the only write; analysis itself needs read-only source.
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:javascript-typescript"
