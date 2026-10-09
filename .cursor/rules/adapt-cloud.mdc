@@ -15,3 +15,11 @@ alwaysApply: true
 - Explain every change in terms of customer value, risk, cost, and operational ownership.
 - Preserve production startup fail-closed behavior and the well-architected readiness checks.
 - A scenario change must identify security, resilience, reliability, cost, sustainability, and automation effects.
+
+## Three-scenario boundary
+
+The repository ships three scenario applications — commercial maintenance, payments exceptions, and insurance claims — each with its own contract and deterministic policy in `src/scenarios/`.
+
+- Agent mode must not merge a scenario's domain policies into generic prompt text: the policies stay in `src/scenarios/`, and prompts never restate them.
+- Never weaken a deterministic control to simplify a prompt, a UI, or a test.
+- One bounded branch per assignment; touch one scenario's surface unless the assignment says otherwise.
