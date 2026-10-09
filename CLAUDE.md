@@ -1,6 +1,6 @@
 # Claude repository briefing
 
-This repository is the Adapt Cloud Applied AI Engineer Residency. The sample is a read-only AI opportunity-assessment agent. It demonstrates the path from client intake to token-cost estimate, governance findings, and an optional Claude architecture recommendation.
+This repository is the Adapt Cloud Applied AI Engineer Residency. It ships three sample scenario applications — commercial maintenance opportunities, payments exceptions, and insurance claims intake — each with its own contract, deterministic policy, and versioned route (`POST /api/v1/scenarios/{commercial,payments,insurance}/assess`). Every scenario demonstrates the same path: bounded synthetic intake, deterministic governance findings, a token-cost estimate, and an optional Claude architecture recommendation that can never replace a policy decision.
 
 ## Operating boundary
 
