@@ -10,3 +10,13 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+  - package-ecosystem: terraform
+    directory: /infra/aws
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: terraform
+    directory: /infra/gcp
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

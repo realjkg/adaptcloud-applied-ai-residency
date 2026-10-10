@@ -56,4 +56,4 @@ jobs:
       - run: npm run connector:simulate
       - run: npm run build
       - run: docker build -t adaptcloud-applied-ai-residency:${{ github.sha }} .
-      - run: npm audit --omit=dev
+      - run: npm audit
