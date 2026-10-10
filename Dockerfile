@@ -13,8 +13,10 @@ RUN npm run build && npm prune --omit=dev
 FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
+# Security: pull perl-base from bookworm-security (DLA-4821-1) while the
+# node:22-bookworm-slim snapshot still ships the vulnerable deb12u3; no-op once upstream rebuilds.
 RUN apt-get update \
-    && apt-get install --only-upgrade -y --no-install-recommends libpcre2-8-0 \
+    && apt-get install --only-upgrade -y --no-install-recommends libpcre2-8-0 perl-base \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /usr/local/lib/node_modules \
     /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
