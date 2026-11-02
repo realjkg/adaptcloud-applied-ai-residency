@@ -50,7 +50,7 @@
     "@opentelemetry/exporter-trace-otlp-http": "^0.300.0",
     "@opentelemetry/resources": "^3.0.0",
     "@opentelemetry/sdk-node": "^0.300.0",
-    "@opentelemetry/semantic-conventions": "^1.43.0"
+    "@opentelemetry/semantic-conventions": "^1.44.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
