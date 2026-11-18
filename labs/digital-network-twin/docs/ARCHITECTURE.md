@@ -76,6 +76,9 @@ The management layer is shown with a dotted line because it manages policy but d
 | Branch MX WAN | 198.51.100.40/24 | branch WAN | IPsec peer address |
 | Branch LAN | 10.40.0.0/24 (gateway 10.40.0.1) | branch | Branch clients |
 | Panorama | 10.99.0.5/24 | management | Policy management only |
+| Branch tunnel | 10.50.0.0/30 | vpn-branch | IPsec tunnel interface on the NGFW |
+
+The F5 and the pool are in different zones, so the F5's health checks and proxied requests cross the NGFW from `dmz` to `app`. Stage 07 therefore needs an explicit rule for the F5 self-IP to the pool port, and the default-deny rule would break the application without it. A security rule matches the pre-NAT destination address but the post-NAT zone, which is why the edge rule names `198.51.100.2` and zone `dmz`.
 
 The lab uses RFC 5737 documentation ranges for public-looking addresses and RFC 1918 ranges for private ones. Do not replace them with real addresses.
 

@@ -17,8 +17,8 @@ Cisco Meraki Auto VPN connects Meraki MX appliances to each other. The data cent
 ## Configure (conceptual)
 
 1. On the NGFW, create an IKE gateway and IPsec tunnel interface using the untrust interface and the peer address `198.51.100.40`. Place the tunnel interface in the `vpn-branch` zone.
-2. Use IKEv2 with a strong pre-shared key or certificate authentication. The key is stored in the approved secret store, not in this repository or the twin file.
-3. On the Meraki MX, configure a non-Meraki VPN peer to the NGFW hub's address, with the same IKE and IPsec parameters and the branch LAN as the local network and `10.20.0.0/24` and `10.30.0.0/24` as remote networks.
+2. Use IKEv2 with a strong pre-shared key. Meraki non-Meraki peers support pre-shared keys only, not certificates, so both sides use the same key. Store it in the approved secret store and refer to it by reference, never in this repository or the twin file.
+3. On the Meraki MX, configure a non-Meraki VPN peer to the NGFW hub's address, with the same IKE and IPsec parameters and the branch LAN as the local network. Use `10.20.0.100/32`, the VIP, as the only remote network. The pool subnet stays unreachable from the branch.
 4. Confirm that the MX lists the tunnel as up and that the NGFW shows an IKE security association for the branch.
 
 ## Verify

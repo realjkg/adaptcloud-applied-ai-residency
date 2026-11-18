@@ -16,8 +16,8 @@ A virtual server is only as useful as the pool behind it. Build the pool and its
 
 ## Configure (conceptual)
 
-1. Create a health monitor of type HTTP, sending `GET /health` and expecting a 200 response, with an interval and timeout suited to the application.
-2. Create a pool, attach the monitor, and add the two members on port 443 or 8080 as the application defines.
+1. Create a health monitor of type HTTP, sending `GET /health` and expecting a 200 response, with an interval and timeout suited to the application. The send string must end with a carriage return and line feed, or the monitor fails.
+2. Create a pool, attach the monitor, and add the two members on port 8080, which is the port the application listens on in this twin.
 3. Set the load-balancing method (round robin is enough for the lab) and a member priority if one member should be preferred.
 4. Do not create a virtual server yet.
 

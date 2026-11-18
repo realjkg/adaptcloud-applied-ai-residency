@@ -17,7 +17,7 @@ HTTPS is terminated at a specific point, and that point needs a certificate and 
 ## Configure (conceptual)
 
 1. Generate a private key in the approved key store, not on a shared workstation. The key must never be written into the twin file or this repository.
-2. Request a certificate for the public hostname from the lab's private or public certificate authority. The subject name must match the hostname that Cloudflare sends to the origin.
+2. Request a certificate for the public hostname (`app.lab.example`) from a publicly trusted CA, or use a Cloudflare Origin CA certificate. Full (strict) accepts only those, unless you configure a custom origin trust store. The subject name must match the hostname that Cloudflare sends to the origin.
 3. Import the certificate and intermediate chain into F5 as a certificate object, and the key as the matching key object.
 4. Record the expiry date and the renewal owner in the inventory.
 

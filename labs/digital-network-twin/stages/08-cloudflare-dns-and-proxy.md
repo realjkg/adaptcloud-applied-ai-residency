@@ -19,7 +19,7 @@ Turning on the proxy sends real user traffic to the origin. The NGFW must alread
 1. Create the DNS record for the application hostname as an address record pointing to the origin, `198.51.100.2`, with the proxy enabled. In the Cloudflare dashboard this is the orange-cloud setting.
 2. Set the SSL/TLS encryption mode to **Full (strict)**. Strict mode checks that the origin certificate matches the hostname and is trusted, which is why stage 05 mattered.
 3. Enable Authenticated Origin Pulls, if the origin is configured to require the Cloudflare client certificate, and record where that certificate is stored.
-4. Keep the DNS TTL low during the change so that a rollback takes effect quickly.
+4. Proxied records use an automatic TTL. If the hostname already has an unproxied record, lower its TTL before the cutover so a rollback takes effect quickly.
 
 ## Verify
 

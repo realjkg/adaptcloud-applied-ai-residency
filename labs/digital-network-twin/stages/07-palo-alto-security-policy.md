@@ -3,7 +3,7 @@ id: 07
 title: Palo Alto security policy
 vendor: Palo Alto Networks (PA-Series NGFW)
 requires: pa.zones, f5.vip
-produces: pa.policy.edge-https, pa.policy.branch-https, pa.policy.default-deny
+produces: pa.policy.edge-https, pa.policy.branch-https, pa.policy.pool-access, pa.policy.default-deny
 ---
 
 ## Why policy comes after the delivery point
@@ -18,10 +18,11 @@ Security rules name a destination. A rule that allows `10.20.0.100:443` is meani
 
 Palo Alto security rules are evaluated from the top down, and the first match wins. Order is part of the policy.
 
-1. **Edge HTTPS (internet to VIP).** Source: an address object named `cloudflare-ranges`, populated from Cloudflare's published IP list, not typed by hand. Destination: `f5-vip`. Service: TCP 443. Action: allow, with logging on. Pair it with destination NAT from `198.51.100.2:443` to `10.20.0.100:443`.
-2. **Branch HTTPS (VPN to VIP).** Source: `10.40.0.0/24` from zone `vpn-branch`. Destination: `f5-vip`. Service: TCP 443. Action: allow, with logging on.
-3. **Default deny.** Source: any. Destination: any. Action: deny, with logging on. This rule is last, so every flow not matched above is denied and recorded.
-4. Attach a security profile (threat prevention and URL filtering) to the allow rules. Do not attach profiles to the deny rule.
+1. **Edge HTTPS (internet to origin).** From `untrust` to `dmz`. Source: an address object named `cloudflare-ranges`, populated from Cloudflare's published IP list, not typed by hand. Destination: `198.51.100.2`, the address before NAT. Service: TCP 443. Action: allow, with logging on. Pair it with a destination NAT rule from `198.51.100.2:443` to `10.20.0.100:443`. A security rule matches the pre-NAT address but the post-NAT zone, so the destination zone is `dmz`.
+2. **Branch HTTPS (VPN to VIP).** From `vpn-branch` to `dmz`. Source: `10.40.0.0/24`. Destination: `10.20.0.100`. Service: TCP 443. Action: allow, with logging on.
+3. **F5 to pool.** From `dmz` to `app`. Source: the F5 self-IP `10.20.0.10`, which is also the source address after SNAT. Destination: `10.30.0.0/24`. Service: TCP 8080. Action: allow, with logging on. Without it, the health monitors and every proxied request are denied.
+4. **Default deny.** Source: any. Destination: any. Action: deny, with logging on. This rule is last, so every flow not matched above is denied and recorded.
+5. Attach a security profile (threat prevention and URL filtering) to the allow rules. Do not attach profiles to the deny rule.
 
 ## Verify
 

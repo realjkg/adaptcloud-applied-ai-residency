@@ -16,7 +16,7 @@ The branch is a trusted site, but it still crosses the NGFW and then the F5 to r
 
 ## Configure (conceptual)
 
-1. On the MX, route traffic for `10.20.0.100/32` through the non-Meraki VPN peer. Do not route the whole `10.0.0.0/8` into the tunnel.
+1. On the MX, confirm that traffic for `10.20.0.100/32` goes through the non-Meraki VPN peer. The peer's remote network list from stage 10 defines that route, so do not add a broader range such as `10.0.0.0/8`.
 2. On the MX firewall, allow outbound TCP 443 from the branch LAN to `10.20.0.100`, and deny other traffic to the data center networks.
 3. Confirm that the NGFW's branch rule from stage 07 matches the same source and destination. A mismatch here is the most common failure in this design.
 4. Keep return routes symmetric: the NGFW must route `10.40.0.0/24` back through `vpn-branch`.

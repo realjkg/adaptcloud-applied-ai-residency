@@ -33,6 +33,26 @@ The path connects a branch, through an IPsec tunnel, and a public user, through 
    npm run verify
    ```
 
+## Build your own config with the health agent
+
+The stages describe what to configure. The health agent checks that what you wrote is valid, one stage at a time.
+
+```bash
+cp config/starter-config.json my-config.json
+npm run health -- --config=my-config.json --until=01
+```
+
+1. Open `docs/CHECKLIST.md` and `stages/01-...md`. Add that stage's section to `my-config.json`.
+2. Run the agent up to the stage. It applies each stage to the twin, runs that stage's checks, and stops at the first failure. No later stage is checked against a config that is already unhealthy.
+3. Fix the config, not the check. Tick the checklist items as they pass, then move to the next stage and raise `--until`.
+4. Compare with `config/twin-config.json`, the finished reference, after you have tried a stage yourself.
+
+`HC-00-SECRET` runs at every stage. Keep keys and pre-shared secrets out of the config. Refer to them as `secret-store://...`.
+
+In Claude Code, the `twin-health-agent` subagent (`.claude/agents/twin-health-agent.md` at the repository root) runs the same command read-only and explains each failure from the checklist and stage files.
+
+Read the vendor pages for each stage in `docs/REFERENCES.md` before configuring it.
+
 ## Commands
 
 | Command | What it does |
@@ -42,7 +62,8 @@ The path connects a branch, through an IPsec tunnel, and a public user, through 
 | `node tools/twin-sequence.mjs run <ids...>` | Applies stages in the order you give; a refused stage names what is missing |
 | `npm run verify` | Applies the full plan and confirms the twin reaches `validation.passed` |
 | `node tools/twin-sequence.mjs show <id>` | Prints one stage's full lesson |
-| `npm test` | Runs the test suite, which also proves the shipped sequence is consistent |
+| `npm run health -- --config=<file> --until=<id>` | Builds the twin to that stage and checks the config at each stage; add `--json` for a report |
+| `npm test` | Runs the test suite: sequence, all 42 health checks, and the checklist |
 
 ## Learning path
 
@@ -85,14 +106,15 @@ For a review or a portfolio, collect:
 
 1. The output of `npm run plan` and `npm run verify`.
 2. The refusal output from at least three out-of-order `run` commands, with a sentence on each explaining the missing dependency.
-3. A one-page design note that answers the checkpoints in your own words.
-4. A residual-risk list drawn from the "What this twin cannot prove" section of the architecture document.
+3. The health agent's report for your own config through stage 12, plus one run where you introduced a fault and the agent halted.
+4. A one-page design note that answers the checkpoints in your own words.
+5. A residual-risk list drawn from the "What this twin cannot prove" section of the architecture document.
 
 ## Boundaries
 
 - Synthetic data only. Addresses use RFC 5737 and RFC 1918 ranges, and names are placeholders.
 - No vendor account, API, credential, or live device is needed or used. Do not add one to this project.
 - Secrets such as the IPsec pre-shared key, the TLS private key, and any Cloudflare API token belong in your organization's secret store, never in a stage file or in this repository.
-- The tool checks sequence and dependencies. It does not validate vendor syntax, performance, licensing, or failover.
+- The tools check sequence, dependencies, and the structure and consistency of the twin config. They do not validate vendor syntax, performance, licensing, or failover.
 
 Vendor product names are trademarks of their owners and identify roles in this training model.

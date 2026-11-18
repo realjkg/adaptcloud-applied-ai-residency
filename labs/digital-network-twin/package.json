@@ -4,11 +4,14 @@
   "private": true,
   "description": "Learn a multi-vendor network path (Cisco Meraki, Cloudflare, Palo Alto Networks, F5) by building it as an ordered, verifiable digital twin.",
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "plan": "node tools/twin-sequence.mjs plan",
     "check": "node tools/twin-sequence.mjs check",
     "verify": "node tools/twin-sequence.mjs verify",
-    "test": "node --test test/twin-sequence.test.mjs"
+    "health": "node tools/health-agent.mjs",
+    "test": "node --test test/twin-sequence.test.mjs test/health.test.mjs"
   }
 }

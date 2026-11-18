@@ -16,9 +16,9 @@ The management interface is the most valuable target in the network: whoever con
 
 ## Configure (conceptual)
 
-1. Put the management interface of the NGFW and the Panorama host in the `management` zone only.
-2. Set the management interface's permitted-source list to the administrator network, not `any`.
-3. Enable only the protocols you need on the management interface (for example HTTPS and SSH), and disable ping and SNMP unless monitoring requires them.
+1. Put the Panorama host in the `management` zone only, behind a data interface that carries an Interface Management profile.
+2. On the dedicated MGT port, set Permitted IP Addresses to the administrator network. An empty list allows any source. On data interfaces, an Interface Management profile with a populated permitted list does the same job, and an interface with no profile denies management access.
+3. Enable only HTTPS and SSH for management. Never enable HTTP or Telnet, and disable ping and SNMP unless monitoring requires them.
 4. Require multi-factor authentication for administrators, or a separate authenticated jump path.
 5. Confirm that no management address is reachable from the untrust zone.
 
