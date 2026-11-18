@@ -1,0 +1,31 @@
+{
+  "twinId": "SYNTH-TWIN-NET-001",
+  "synthetic": true,
+  "description": "Synthetic digital twin of a branch-to-application path: Cisco Meraki branch, Cloudflare edge, Palo Alto Networks NGFW, and F5 BIG-IP application delivery in front of a synthetic application pool. Addresses use RFC 5737 and RFC 1918 ranges only.",
+  "components": [
+    { "id": "cf-edge-waf", "vendor": "cloudflare", "role": "edge-waf-dns", "zone": "internet", "address": "203.0.113.10" },
+    { "id": "pa-ngfw-dmz", "vendor": "paloalto", "role": "ngfw", "zone": "dmz", "address": "10.20.0.2", "wanAddress": "198.51.100.2" },
+    { "id": "f5-bigip-adc", "vendor": "f5", "role": "adc-ltm", "zone": "dmz", "address": "10.20.0.10" },
+    { "id": "app-web-pool", "vendor": "synthetic-app", "role": "application-pool", "zone": "app", "address": "10.30.0.0", "members": ["10.30.0.11", "10.30.0.12"] },
+    { "id": "meraki-mx-branch", "vendor": "cisco-meraki", "role": "branch-security-appliance", "zone": "branch", "address": "10.40.0.1", "wanAddress": "198.51.100.40" },
+    { "id": "panorama-mgmt", "vendor": "paloalto", "role": "management-plane", "zone": "management", "address": "10.99.0.5", "managementExposed": false }
+  ],
+  "flows": [
+    {
+      "id": "app-https-inbound",
+      "source": "internet",
+      "path": ["cf-edge-waf", "pa-ngfw-dmz", "f5-bigip-adc", "app-web-pool"],
+      "port": 443,
+      "protocol": "tcp",
+      "tlsTermination": "f5-bigip-adc"
+    },
+    {
+      "id": "branch-to-app",
+      "source": "branch",
+      "path": ["meraki-mx-branch", "pa-ngfw-dmz", "f5-bigip-adc", "app-web-pool"],
+      "port": 443,
+      "protocol": "tcp",
+      "tlsTermination": "f5-bigip-adc"
+    }
+  ]
+}
