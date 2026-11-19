@@ -17,6 +17,7 @@
 import { randomBytes } from "node:crypto";
 import { readFile, rename, writeFile } from "node:fs/promises";
 import { digest, markFor, OPID, same } from "./adapters/common.mjs";
+import { createCommitHooks } from "./commit-hooks.mjs";
 import { can } from "./roles.mjs";
 import { bindTarget, denyAllPolicy, recheckBoundTarget, TargetError } from "./target-resolution.mjs";
 
@@ -161,8 +162,10 @@ export function createOperations({ resolver, policy = denyAllPolicy, adapters, a
         op.executedBy = user.subject;
         await save();
         await audit.record({ event: "operation.executing", operation: id, actor: user.subject, digest: op.planDigest });
+        // One set of hooks per execution: intent, then job id, in that order and at most once.
+        const hooks = journal ? createCommitHooks({ journal, id, targetFingerprint: op.binding.fingerprint, planDigest: op.planDigest }) : null;
         let result;
-        try { result = await r.adapter.execute(op.plan, { params: op.params, changeType: op.changeType, target: r.target, recordCommitIntent: journal ? () => journal.recordIntent({ id, targetFingerprint: op.binding.fingerprint, planDigest: op.planDigest }) : undefined, onJobQueued: async (jobId) => { op.jobId = jobId; if (journal) await journal.recordJob(id, jobId).catch(() => {}); await save(); await audit.record({ event: "operation.commit_queued", operation: id, actor: user.subject, job: jobId }); } }); } catch { result = { outcome: "uncertain", reason: "executor_error" }; }
+        try { result = await r.adapter.execute(op.plan, { params: op.params, changeType: op.changeType, target: r.target, recordCommitIntent: hooks ? () => hooks.beforeCommit() : undefined, onJobQueued: async (jobId) => { op.jobId = jobId; if (hooks) await hooks.onJobQueued(jobId).catch(() => {}); await save(); await audit.record({ event: "operation.commit_queued", operation: id, actor: user.subject, job: jobId }); } }); } catch { result = { outcome: "uncertain", reason: "executor_error" }; }
         op.result = result;
         op.status = result.outcome === "verified" ? "completed" : result.outcome === "failed" ? "failed" : "uncertain";
         await save();

@@ -156,7 +156,7 @@ export function createPaloAltoAdapter({ http, target: rawTarget, env, sleep = sl
       // answered by sending it again.
       if (ctx.recordCommitIntent) {
         try { await ctx.recordCommitIntent(); } catch (error) {
-          return error?.code === "EEXIST"
+          return error?.code === "EEXIST" || error?.message === "commit_intent_already_attempted"
             ? { outcome: "uncertain", reason: "commit_intent_already_recorded", stage: "commit", candidateLeftInPlace: true }
             : { outcome: "failed", reason: "commit_intent_not_recorded", stage: "commit", candidateLeftInPlace: true };
         }
