@@ -25,8 +25,14 @@ export const REASONS = [
   "drift_detected",
   "operation_failed",
   "verification_failed",
-  "in_use"
+  "in_use",
+  "live_not_authorized",
+  "host_not_allowlisted",
+  "object_unsupported"
 ];
+
+/** The recorded owner decision a live policy must point at. See that file for what it does and does not authorize. */
+export const LIVE_AUTHORIZATION_ADR = "docs/adr/0001-live-provisioning-authorization.md";
 
 const HOUR = 60 * 60 * 1000;
 const ISO_WITH_OFFSET = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
@@ -59,8 +65,20 @@ export function evaluatePolicy({ action, policy, target, changeset, transportKin
   if (typeof target?.tenantId !== "string" || !tenants.includes(target.tenantId)) return "tenant_not_allowlisted";
   if (!changeset.every((op) => vendors.includes(op.vendor))) return "vendor_not_allowlisted";
 
-  // Only the simulator exists. A live adapter needs owner approval, a threat model, and a passing contract suite.
-  if (policy.transport !== "simulator" || transportKind !== "simulator") return "transport_unavailable";
+  // The policy names the transport it permits, and the engine must be holding exactly that transport.
+  if (!["simulator", "live"].includes(policy.transport) || policy.transport !== transportKind) return "transport_unavailable";
+  if (policy.transport === "live") {
+    // Live mode needs the recorded owner decision, an acknowledgment that the adapters have not run against a real
+    // system, and an exact host allowlist for every vendor in the plan. No wildcards, no defaults.
+    const authorization = policy.liveAuthorization;
+    if (authorization?.adr !== LIVE_AUTHORIZATION_ADR || authorization.acknowledgesUntested !== true) return "live_not_authorized";
+    const hosts = policy.allowedHosts ?? {};
+    if (Object.values(hosts).flat().some((host) => typeof host === "string" && host.includes("*"))) return "wildcard_not_permitted";
+    for (const vendor of new Set(changeset.map((op) => op.vendor))) {
+      const list = hosts[vendor];
+      if (!Array.isArray(list) || list.length === 0 || !list.every((host) => typeof host === "string" && host.length > 0)) return "host_not_allowlisted";
+    }
+  }
   if (!Number.isInteger(policy.maxOperations) || changeset.length > policy.maxOperations) return "too_many_operations";
   if (action === "destroy" && policy.allowDestroy !== true) return "destroy_not_enabled";
   return null;

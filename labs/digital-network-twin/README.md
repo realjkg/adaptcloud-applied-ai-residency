@@ -107,7 +107,7 @@ The gate refuses by default. It acts only on a tenant named `lab` that is on an 
 3. Edit `.twin-lab-state.json` to change `cloudflare/zone-setting/ssl`, and re-run `plan`. Say what the drift refusal protects against.
 4. Destroy with `"allowDestroy": true`, then destroy again, and explain both results.
 
-There is **no live transport**. The engine cannot reach a vendor or hold a credential, and `docs/PROVISIONING.md` lists everything that must exist before a live adapter is allowed. Provisioning real infrastructure, including a tenant you own, is outside this lab until that list is satisfied.
+**Live adapters exist but have never been run.** Cloudflare DNS records and four F5 object kinds can be created and deleted on a real tenant. They were written without access to a real system, so they are tested only against an in-memory fake, are off by default, and sit behind the same gate. Palo Alto and Meraki are deliberately refused. Read `docs/adr/0001-live-provisioning-authorization.md` and the "Live adapters" section of `docs/PROVISIONING.md` before you consider a live run. A first run belongs on a disposable lab tenant you own, limited with `--only` to one low-risk object, never on production, an employer, or a customer.
 
 ## Commands
 

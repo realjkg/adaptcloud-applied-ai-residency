@@ -8,14 +8,21 @@
 //   node tools/provision-cli.mjs destroy --policy=<file> --approval=<file>
 //
 // Common flags: --config=<file> --state=<file> --tenant=<id> --environment=lab
+//               --only=cloudflare/dns-record,f5/pool   narrow to exact vendor/object pairs (own digest, own approvals)
 // Set TWIN_PROVISION_KILL=1 to refuse everything.
+//
+// A policy with "transport": "live" uses the live adapters (Cloudflare DNS records and four F5 object kinds).
+// They are untested against a real system and are refused unless the policy carries the recorded authorization,
+// exact host allowlists, and credentials in the environment. See docs/PROVISIONING.md and
+// docs/adr/0001-live-provisioning-authorization.md.
 
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { LabTransport } from "./lab-transport.mjs";
-import { apply, destroy, plan, prepare } from "./provision.mjs";
-import { stableStringify } from "./provision-policy.mjs";
+import { createLiveTransport } from "./live/transport.mjs";
+import { apply, destroy, plan, prepare, selectChangeSet } from "./provision.mjs";
+import { digestOf, stableStringify } from "./provision-policy.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CONFIG = join(HERE, "..", "config", "twin-config.json");
@@ -107,10 +114,22 @@ export async function main(argv) {
   }
   const target = { environment: flag("--environment") ?? "lab", tenantId: flag("--tenant") ?? "", owner: config.twinId };
 
+  // --only narrows the change set to exact vendor/object pairs. The subset has its own digest and its own approvals.
+  let changeset = prepared.changeset;
+  if (flag("--only")) {
+    try {
+      changeset = selectChangeSet(changeset, flag("--only").split(","));
+    } catch (error) {
+      console.error(error.message);
+      return 2;
+    }
+  }
+  const digest = digestOf(changeset);
+
   if (command === "approval-template") {
     const action = rest.find((arg) => !arg.startsWith("--")) ?? "";
     // Deliberately invalid until a person fills in the approver and the time.
-    console.log(JSON.stringify({ ref: "REPLACE-WITH-TICKET-ID", approver: "", action, tenantId: target.tenantId, digest: prepared.digest, approvedAt: "REPLACE-WITH-ISO-8601-TIMESTAMP-WITH-OFFSET" }, null, 2));
+    console.log(JSON.stringify({ ref: "REPLACE-WITH-TICKET-ID", approver: "", action, tenantId: target.tenantId, digest, approvedAt: "REPLACE-WITH-ISO-8601-TIMESTAMP-WITH-OFFSET" }, null, 2));
     return 0;
   }
 
@@ -122,8 +141,16 @@ export async function main(argv) {
     return 2;
   }
   const statePath = flag("--state") ?? DEFAULT_STATE;
-  const transport = new LabTransport({ entries: await loadState(statePath) });
-  const base = { changeset: prepared.changeset, transport, policy, target, killSwitch };
+  // The policy names the transport. "live" builds the live transport, which still passes the gate before any call.
+  const live = policy?.transport === "live";
+  let transport;
+  try {
+    transport = live ? createLiveTransport({ policy }) : new LabTransport({ entries: await loadState(statePath) });
+  } catch (error) {
+    console.error(`could not build the transport: ${error.message}`);
+    return 2;
+  }
+  const base = { changeset, transport, policy, target, killSwitch };
 
   let result;
   if (command === "plan") {
@@ -139,7 +166,7 @@ export async function main(argv) {
     result = command === "apply"
       ? await apply({ ...base, approval, plannedDigest: flag("--planned-digest"), now })
       : await destroy({ ...base, approval, now });
-    if (result.ok) await writeFile(statePath, `${JSON.stringify(transport.snapshot(), null, 2)}\n`);
+    if (result.ok && !live) await writeFile(statePath, `${JSON.stringify(transport.snapshot(), null, 2)}\n`);
   }
   console.log(JSON.stringify(result, null, 2));
   return result.ok ? 0 : 1;

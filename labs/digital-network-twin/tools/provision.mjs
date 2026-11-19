@@ -16,6 +16,38 @@ const refuse = (refusal, detail) => ({ ok: false, refusal, ...(detail ? { detail
 const keyOf = (op) => ({ vendor: op.vendor, object: op.object, name: op.name });
 const same = (a, b) => stableStringify(a) === stableStringify(b);
 
+/**
+ * Narrows a change set to exact "vendor/object" selectors, for example ["cloudflare/dns-record", "f5/pool"].
+ * No wildcards, and a selector that matches nothing is an error. Original order numbers are kept, so the
+ * subset has its own digest and an approval for the full change set does not cover it.
+ */
+export function selectChangeSet(changeset, selectors) {
+  const wanted = new Set(selectors);
+  if (wanted.size === 0 || [...wanted].some((selector) => !/^[a-z0-9-]+\/[a-z0-9-]+$/.test(selector))) throw new Error("selectors must be exact vendor/object pairs");
+  const picked = changeset.filter((op) => wanted.has(`${op.vendor}/${op.object}`));
+  for (const selector of wanted) {
+    if (!picked.some((op) => `${op.vendor}/${op.object}` === selector)) throw new Error(`selector matches nothing: ${selector}`);
+  }
+  return picked;
+}
+
+/** Operations the transport cannot perform faithfully. A transport without supports() handles everything. */
+function unsupportedOps(changeset, transport) {
+  if (typeof transport.supports !== "function") return [];
+  return changeset.filter((op) => transport.supports(op) !== true);
+}
+
+const unsupportedRefusal = (ops, transport) => refuse("object_unsupported", [...new Set(ops.map((op) => `${op.vendor}/${op.object}${transport.unsupportedReason ? `: ${transport.unsupportedReason(op)}` : ""}`))].join("; "));
+
+/** Delete that reports a transport error as a failed result instead of throwing, so rollback always finishes its pass. */
+async function safeDelete(transport, op, owner) {
+  try {
+    return await transport.delete(keyOf(op), owner, op.attributes);
+  } catch {
+    return { ok: false, reason: "operation_failed" };
+  }
+}
+
 /** Builds the change set from a config, but only if every stage is healthy. */
 export function prepare(config) {
   try {
@@ -30,7 +62,7 @@ export function prepare(config) {
 async function classify(changeset, transport, owner) {
   const entries = [];
   for (const op of changeset) {
-    const existing = await transport.read(keyOf(op));
+    const existing = await transport.read(keyOf(op), op.attributes);
     let state = "create";
     if (existing) {
       if (existing.managedBy !== owner) state = "conflict_unmanaged";
@@ -45,7 +77,14 @@ async function classify(changeset, transport, owner) {
 export async function plan({ changeset, transport, policy, target, killSwitch = false }) {
   const reason = evaluatePolicy({ action: "plan", policy, target, changeset, transportKind: transport.kind, killSwitch });
   if (reason) return refuse(reason);
-  const entries = await classify(changeset, transport, target.owner);
+  const unsupported = unsupportedOps(changeset, transport);
+  if (unsupported.length > 0) return unsupportedRefusal(unsupported, transport);
+  let entries;
+  try {
+    entries = await classify(changeset, transport, target.owner);
+  } catch {
+    return refuse("operation_failed", "could not read current state");
+  }
   const summary = {};
   for (const entry of entries) summary[entry.state] = (summary[entry.state] ?? 0) + 1;
   return { ok: true, digest: digestOf(changeset), entries, summary };
@@ -54,7 +93,7 @@ export async function plan({ changeset, transport, policy, target, killSwitch = 
 async function rollback(created, transport, owner, audit, now, action) {
   const remaining = [];
   for (const op of [...created].reverse()) {
-    const result = await transport.delete(keyOf(op), owner);
+    const result = await safeDelete(transport, op, owner);
     audit.push({ at: now.toISOString(), action: `${action}-rollback`, order: op.order, vendor: op.vendor, object: op.object, name: op.name, outcome: result.ok ? result.outcome : result.reason });
     if (!result.ok) remaining.push({ order: op.order, vendor: op.vendor, object: op.object, name: op.name, reason: result.reason });
   }
@@ -65,6 +104,9 @@ export async function apply({ changeset, transport, policy, target, approval, pl
   const audit = [];
   const reason = evaluatePolicy({ action: "apply", policy, target, changeset, transportKind: transport.kind, killSwitch });
   if (reason) return refuse(reason);
+  // Refuse before anything is approved or written if the transport cannot perform every operation faithfully.
+  const unsupported = unsupportedOps(changeset, transport);
+  if (unsupported.length > 0) return unsupportedRefusal(unsupported, transport);
 
   const digest = digestOf(changeset);
   if (plannedDigest !== digest) return refuse("dry_run_required", "run plan on this exact change set and pass its digest");
@@ -72,7 +114,12 @@ export async function apply({ changeset, transport, policy, target, approval, pl
   if (approvalReason) return refuse(approvalReason);
 
   // Read everything first. Any conflict or drift stops the run before the first write.
-  const entries = await classify(changeset, transport, target.owner);
+  let entries;
+  try {
+    entries = await classify(changeset, transport, target.owner);
+  } catch {
+    return refuse("operation_failed", "could not read current state");
+  }
   if (entries.some((entry) => entry.state === "conflict_unmanaged")) return refuse("conflict_unmanaged", "an object with a planned name exists and is not owned by this twin");
   if (entries.some((entry) => entry.state === "drift")) return refuse("drift_detected", "an owned object differs from intent; review before applying");
 
@@ -97,7 +144,7 @@ export async function apply({ changeset, transport, policy, target, approval, pl
     }
     let readBack = null;
     try {
-      readBack = await transport.read(keyOf(op));
+      readBack = await transport.read(keyOf(op), op.attributes);
     } catch {
       readBack = null;
     }
@@ -114,6 +161,8 @@ export async function destroy({ changeset, transport, policy, target, approval, 
   const audit = [];
   const reason = evaluatePolicy({ action: "destroy", policy, target, changeset, transportKind: transport.kind, killSwitch });
   if (reason) return refuse(reason);
+  const unsupported = unsupportedOps(changeset, transport);
+  if (unsupported.length > 0) return unsupportedRefusal(unsupported, transport);
 
   const digest = digestOf(changeset);
   const approvalReason = validateApproval(approval, { action: "destroy", tenantId: target.tenantId, digest, now });
@@ -123,7 +172,7 @@ export async function destroy({ changeset, transport, policy, target, approval, 
   const skipped = [];
   for (const op of [...changeset].reverse()) {
     const row = { at: now.toISOString(), action: "destroy", order: op.order, vendor: op.vendor, object: op.object, name: op.name };
-    const result = await transport.delete(keyOf(op), target.owner);
+    const result = await safeDelete(transport, op, target.owner);
     if (result.ok && result.outcome === "deleted") {
       deleted += 1;
       audit.push({ ...row, outcome: "deleted" });
@@ -133,9 +182,12 @@ export async function destroy({ changeset, transport, policy, target, approval, 
       // Never delete what this twin does not own. Leave it and say so.
       skipped.push({ order: op.order, vendor: op.vendor, object: op.object, name: op.name });
       audit.push({ ...row, outcome: "skipped_unmanaged" });
-    } else {
-      audit.push({ ...row, outcome: result.reason });
+    } else if (result.reason === "in_use") {
+      audit.push({ ...row, outcome: "in_use" });
       return { ...refuse("in_use", `${op.object} ${op.name} is still referenced`), audit, deleted, skipped };
+    } else {
+      audit.push({ ...row, outcome: "operation_failed" });
+      return { ...refuse("operation_failed", `${op.object} ${op.name} could not be deleted`), audit, deleted, skipped };
     }
   }
   return { ok: true, deleted, skipped, audit };

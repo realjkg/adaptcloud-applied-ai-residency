@@ -7,7 +7,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { LabTransport } from "../tools/lab-transport.mjs";
 import { apply, destroy, plan, prepare } from "../tools/provision.mjs";
-import { digestOf, evaluatePolicy, REASONS, validateApproval } from "../tools/provision-policy.mjs";
+import { digestOf, evaluatePolicy, LIVE_AUTHORIZATION_ADR, REASONS, validateApproval } from "../tools/provision-policy.mjs";
+import { createLiveTransport } from "../tools/live/transport.mjs";
+import { createFakeVendors, ENV, F5_HOST, ZONE_ID } from "./fake-vendors.mjs";
 import { runRoundtrip, SIMULATION_POLICY } from "../tools/provision-cli.mjs";
 import { runTransportContract } from "./transport-contract.mjs";
 
@@ -67,6 +69,44 @@ test("policy refuses by default and for every unsafe target", () => {
   expectReason(ask({ transportKind: "live" }), "transport_unavailable");
   expectReason(ask({ policy: { maxOperations: 10 } }), "too_many_operations");
   expectReason(evaluatePolicy({ action: "destroy", policy: { ...SIMULATION_POLICY, allowDestroy: false }, target, changeset, transportKind: "simulator" }), "destroy_not_enabled");
+});
+
+test("live mode needs the recorded authorization, an acknowledgment, and an exact host list for every vendor", () => {
+  const changeset = prepare(reference()).changeset;
+  const target = { environment: "lab", tenantId: "lab-tenant-001" };
+  const hosts = { paloalto: ["fw.lab.example"], f5: ["10.20.0.10"], cloudflare: ["api.cloudflare.com"], meraki: ["api.meraki.com"] };
+  const livePolicy = { ...SIMULATION_POLICY, transport: "live", liveAuthorization: { adr: LIVE_AUTHORIZATION_ADR, acknowledgesUntested: true }, allowedHosts: hosts };
+  const ask = (policy, transportKind = "live") => evaluatePolicy({ action: "apply", policy, target, changeset, transportKind });
+  assert.equal(ask(livePolicy), null, "a fully authorized live policy passes the gate");
+  expectReason(ask({ ...livePolicy, liveAuthorization: undefined }), "live_not_authorized");
+  expectReason(ask({ ...livePolicy, liveAuthorization: { adr: "docs/other.md", acknowledgesUntested: true } }), "live_not_authorized");
+  expectReason(ask({ ...livePolicy, liveAuthorization: { adr: LIVE_AUTHORIZATION_ADR, acknowledgesUntested: false } }), "live_not_authorized");
+  expectReason(ask({ ...livePolicy, liveAuthorization: { adr: LIVE_AUTHORIZATION_ADR } }), "live_not_authorized");
+  expectReason(ask({ ...livePolicy, allowedHosts: { ...hosts, f5: [] } }), "host_not_allowlisted");
+  expectReason(ask({ ...livePolicy, allowedHosts: { paloalto: hosts.paloalto, f5: hosts.f5, cloudflare: hosts.cloudflare } }), "host_not_allowlisted");
+  expectReason(ask({ ...livePolicy, allowedHosts: undefined }), "host_not_allowlisted");
+  expectReason(ask({ ...livePolicy, allowedHosts: { ...hosts, f5: ["*.lab.example"] } }), "wildcard_not_permitted");
+  // The policy and the transport must agree, in both directions.
+  expectReason(ask(livePolicy, "simulator"), "transport_unavailable");
+  expectReason(ask({ ...livePolicy, transport: "simulator" }, "live"), "transport_unavailable");
+  // Every other gate still applies to live mode.
+  expectReason(evaluatePolicy({ action: "apply", policy: { ...livePolicy, environment: "production" }, target: { environment: "production", tenantId: "lab-tenant-001" }, changeset, transportKind: "live" }), "environment_not_lab");
+  expectReason(evaluatePolicy({ action: "destroy", policy: { ...livePolicy, allowDestroy: false }, target, changeset, transportKind: "live" }), "destroy_not_enabled");
+});
+
+test("a transport that cannot perform an operation faithfully is refused before anything is approved or written", async () => {
+  const fake = createFakeVendors();
+  const prepared = prepare(reference());
+  const policy = {
+    ...SIMULATION_POLICY, transport: "live", liveAuthorization: { adr: LIVE_AUTHORIZATION_ADR, acknowledgesUntested: true },
+    allowedVendors: ["paloalto", "f5", "cloudflare", "meraki"],
+    allowedHosts: { paloalto: ["fw.lab.example"], f5: [F5_HOST], cloudflare: ["api.cloudflare.com"], meraki: ["api.meraki.com"] },
+    live: { cloudflare: { zoneId: ZONE_ID }, f5: { host: F5_HOST } }
+  };
+  const transport = createLiveTransport({ policy, env: ENV, fetchImpl: fake.fetchImpl });
+  const result = await plan({ changeset: prepared.changeset, transport, policy, target: { environment: "lab", tenantId: "lab-tenant-001", owner: "SYNTH-TWIN-NET-001" } });
+  expectReason(result.refusal, "object_unsupported");
+  assert.equal(fake.requests.length, 0);
 });
 
 test("an unhealthy config never becomes a change set", () => {
@@ -225,6 +265,19 @@ test("the change set holds references to secrets, never secrets", () => {
   assert.ok(/secret-store:\/\//.test(text));
 });
 
+test("the authorization a live policy must cite exists, and says the adapters are untested", () => {
+  const adr = readFileSync(join(root, LIVE_AUTHORIZATION_ADR), "utf8");
+  assert.match(adr, /never run|untested|without access to a real tenant/i);
+  assert.match(adr, /does not authorize/i);
+  assert.match(adr, /production/i);
+  const example = JSON.parse(readFileSync(join(root, "config", "provision-policy.live.example.json"), "utf8"));
+  assert.equal(example.enabled, false, "the example must ship disabled");
+  assert.equal(example.liveAuthorization.acknowledgesUntested, false, "the example must ship unacknowledged");
+  assert.equal(example.liveAuthorization.adr, LIVE_AUTHORIZATION_ADR);
+  const reason = evaluatePolicy({ action: "plan", policy: example, target: { environment: "lab", tenantId: "lab-tenant-001" }, changeset: prepare(reference()).changeset.filter((op) => op.vendor === "f5"), transportKind: "live" });
+  assert.equal(reason, "layer_disabled", "copying the example must not enable anything");
+});
+
 test("docs/PROVISIONING.md names every refusal reason", () => {
   const doc = readFileSync(join(root, "docs", "PROVISIONING.md"), "utf8");
   for (const reason of REASONS) assert.ok(doc.includes(`\`${reason}\``), `${reason} is missing from the doc`);
@@ -251,6 +304,30 @@ test("CLI: approval-template is invalid until a person completes it", () => {
   assert.equal(template.digest, prepare(reference()).digest);
   const reason = validateApproval(template, { action: "apply", tenantId: "lab-tenant-001", digest: template.digest, now: new Date() });
   assert.equal(reason, "approval_invalid");
+});
+
+test("CLI: --only narrows to exact pairs and changes the digest, and wildcards are refused", () => {
+  const full = JSON.parse(cli(["approval-template", "apply", "--tenant=lab-tenant-001"]).out);
+  const subset = JSON.parse(cli(["approval-template", "apply", "--tenant=lab-tenant-001", "--only=cloudflare/dns-record"]).out);
+  assert.notEqual(full.digest, subset.digest);
+  assert.equal(cli(["approval-template", "apply", "--only=cloudflare/*"]).status, 2);
+  assert.equal(cli(["approval-template", "apply", "--only=f5/missing"]).status, 2);
+});
+
+test("CLI: a live policy without the recorded authorization is refused before any call", () => {
+  const dir = mkdtempSync(join(tmpdir(), "twin-cli-"));
+  try {
+    const policy = join(dir, "policy.json");
+    const base = { ...SIMULATION_POLICY, transport: "live", allowedVendors: ["cloudflare"], allowedHosts: { cloudflare: ["api.cloudflare.com"] }, live: { cloudflare: { zoneId: ZONE_ID } } };
+    writeFileSync(policy, JSON.stringify(base));
+    const result = cli(["plan", `--policy=${policy}`, "--tenant=lab-tenant-001", "--only=cloudflare/dns-record"]);
+    assert.equal(result.status, 1);
+    assert.equal(JSON.parse(result.out).refusal, "live_not_authorized");
+    writeFileSync(policy, JSON.stringify({ ...base, live: { cloudflare: { zoneId: "not-a-zone" } } }));
+    assert.equal(cli(["plan", `--policy=${policy}`, "--tenant=lab-tenant-001", "--only=cloudflare/dns-record"]).status, 2, "a malformed live setting fails cleanly");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("CLI: refuses without a policy, and with a disabled one", () => {

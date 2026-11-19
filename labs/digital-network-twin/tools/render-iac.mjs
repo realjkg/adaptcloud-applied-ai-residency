@@ -64,7 +64,7 @@ export function buildChangeSet(config) {
   for (const item of pa.interfaces) add("interfaces", "paloalto", "interface", item.name, { zone: item.zone, address: item.address, ...(item.managementProfile ? { managementProfile: item.managementProfile } : {}) });
   for (const route of pa.routes.filter((item) => item.nextHop !== tunnel)) add("routes", "paloalto", "static-route", route.destination, { nextHop: route.nextHop });
 
-  add("monitor", "f5", "monitor", `${config.f5.pool.name}-monitor`, { type: config.f5.pool.monitor.type, receive: config.f5.pool.monitor.receive });
+  add("monitor", "f5", "monitor", `${config.f5.pool.name}-monitor`, { type: config.f5.pool.monitor.type, send: config.f5.pool.monitor.send, receive: config.f5.pool.monitor.receive });
   add("pool", "f5", "pool", config.f5.pool.name, { method: config.f5.pool.method });
   for (const member of config.f5.pool.members) add("member", "f5", "pool-member", `${member.address}:${member.port}`, { pool: config.f5.pool.name });
   const certificate = config.tls.certificate;

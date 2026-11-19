@@ -161,6 +161,7 @@
     "action": "create",
     "attributes": {
       "type": "http",
+      "send": "GET /health HTTP/1.1\r\nHost: app.lab.example\r\nConnection: close\r\n\r\n",
       "receive": "200"
     }
   },
