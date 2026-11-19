@@ -38,6 +38,14 @@ test("conditions are closed lists, values cannot carry quotes, spaces, or backsl
   assert.ok(CHANGE_TYPES["cache-rule.add"].validate({ ...COND, cacheMode: "bypass", edgeTtl: "60", comment: "x" }).length > 0, "a TTL only goes with eligible");
 });
 
+test("names a browser supplies are looked up as own properties only: constructor, __proto__, and friends are validation errors, never crashes", () => {
+  const v = CHANGE_TYPES["waf-custom-rule.add"].validate;
+  for (const field of ["constructor", "__proto__", "toString", "hasOwnProperty", "valueOf", 7, null, undefined, ["host"], { host: 1 }]) {
+    let result; assert.doesNotThrow(() => { result = v({ ...WAF, conditionField: field }); }, String(field));
+    assert.ok(result.length > 0, `${String(field)} must be a validation error`);
+  }
+});
+
 test("the plan adds one rule, leaves every other rule unchanged, previews the effect on synthetic traffic, and needs no exclusive window", () => {
   const state = { exists: true, rulesetId: "r1", version: 4, rules: [{ id: "x1", ref: "legacy", description: "theirs", action: "block", expression: '(ip.src.country eq "XX")', enabled: true }] };
   const p = planEdge({ changeType: "waf-custom-rule.add", params: WAF, state, opId: "OP-ABCDEF0123" });

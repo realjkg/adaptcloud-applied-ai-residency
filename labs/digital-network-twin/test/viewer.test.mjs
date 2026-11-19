@@ -112,7 +112,7 @@ test("the viewer server is read-only, local, and limited to its own files", asyn
     assert.equal(page.headers.get("x-content-type-options"), "nosniff");
     assert.equal((await fetch(`${base}/snapshots/SYNTH-SNAP-003.json`)).status, 200);
     for (const asset of ["app.js", "operate.js", "sdwan.js", "scenario.js", "viewer.css"]) assert.equal((await fetch(`${base}/${asset}`)).status, 200, asset);
-    for (const path of ["/snapshots/..%2Fconfig%2Ftwin-config.json", "/snapshots/%2e%2e/package.json", "/package.json", "/../package.json", "/snapshots/x.txt", "/serve.mjs"]) {
+    for (const path of ["/constructor", "/__proto__", "/toString", "/hasOwnProperty", "/snapshots/__proto__.json", "/snapshots/..%2Fconfig%2Ftwin-config.json", "/snapshots/%2e%2e/package.json", "/package.json", "/../package.json", "/snapshots/x.txt", "/serve.mjs"]) {
       assert.equal((await fetch(`${base}${path}`)).status, 404, path);
     }
     for (const method of ["POST", "PUT", "DELETE"]) assert.equal((await fetch(`${base}/`, { method })).status, 405);

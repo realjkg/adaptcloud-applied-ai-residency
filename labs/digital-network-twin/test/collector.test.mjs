@@ -105,3 +105,8 @@ test("the read-only wrapper refuses every method but GET before the network", ()
   for (const method of ["POST", "PUT", "PATCH", "DELETE", undefined]) assert.throws(() => http({ method, url: "https://x.example/" }), /collector_is_read_only/);
   assert.equal(reached, false);
 });
+
+test("collector settings: vendor names are matched as own properties, so constructor and __proto__ are not vendors", async () => {
+  const r = await collectSnapshot({ settings: { enabled: true, acknowledgesUntested: true, vendors: { constructor: { hosts: ["x.test"] }, __proto__x: { hosts: ["x.test"] } } }, env: {}, fetchImpl: async () => { throw new Error("no network"); }, now: new Date(), snapshotId: "C-1" });
+  assert.equal(r.refusal, "no_vendors_configured");
+});

@@ -21,7 +21,10 @@ const sleepDefault = (ms) => new Promise((r) => setTimeout(r, ms));
 /** Narrow XML reading: one tag's text, all members of a list. No general parser, so nothing to exploit. */
 export const xmlText = (xml, tag) => xml.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([^<]*)</${tag}>`))?.[1] ?? null;
 export const xmlMembers = (xml, tag) => [...xml.matchAll(new RegExp(`<${tag}(?:\\s[^>]*)?>([^<]*)</${tag}>`, "g"))].map((m) => m[1]);
-const xmlOk = (xml) => /<response[^>]*\sstatus="success"/.test(xml);
+// The status is read from the opening <response ...> tag only: one linear scan for the tag, then a bounded check inside it.
+const responseTag = (xml) => /<response\b[^>]*>/.exec(xml)?.[0] ?? "";
+const responseStatus = (xml) => /\bstatus="(success|error)"/.exec(responseTag(xml))?.[1];
+const xmlOk = (xml) => responseStatus(xml) === "success";
 const xmlEscape = (s) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[c]);
 
 
@@ -34,7 +37,7 @@ const ADMIN = /^[A-Za-z0-9_.@-]{1,128}$/;
  */
 export function panReply(text) {
   if (typeof text !== "string" || !/^\s*(<\?xml[^>]*\?>\s*)?<response\b/.test(text)) throw new WriteError("pan_unexpected_response");
-  const status = /<response[^>]*\sstatus="(success|error)"/.exec(text)?.[1];
+  const status = responseStatus(text);
   if (!status) throw new WriteError("pan_unexpected_response");
   if (status === "error") throw new WriteError("pan_request_rejected", 400);
   return text;

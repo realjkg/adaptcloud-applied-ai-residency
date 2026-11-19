@@ -8,7 +8,7 @@
 // no credentials. Run `write`, replace the task, then run `verify`. Replacing means stopping the task and starting a new
 // one, not restarting a process inside the same task.
 
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomInt } from "node:crypto";
 import { hostname } from "node:os";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -26,7 +26,7 @@ export async function writePhase(dir) {
   const id = `OP-${randomBytes(5).toString("hex").toUpperCase()}`;
   const targetFingerprint = randomBytes(32).toString("hex");
   const planDigest = randomBytes(32).toString("hex");
-  const jobId = String(1 + Math.floor(Math.random() * 1e9));
+  const jobId = String(randomInt(1, 1_000_000_000));
 
   try { await journal.recordIntent({ id, targetFingerprint, planDigest }); ok("intent is written (hard link and fsync work)", true); } catch (error) { ok("intent is written (hard link and fsync work)", false, error.code ?? error.message); return report(checks, null); }
   try { await journal.recordIntent({ id, targetFingerprint, planDigest }); ok("a second intent for the same operation is refused", false, "it was accepted"); } catch (error) { ok("a second intent for the same operation is refused", error.code === "EEXIST", error.code ?? error.message); }

@@ -16,6 +16,9 @@ import { evaluateSdwan } from "./adapters/sdwan-model.mjs";
 
 const VIEWER = join(dirname(fileURLToPath(import.meta.url)), "..", "viewer");
 const ASSETS = { "scenario.js": "text/javascript; charset=utf-8", "sdwan.js": "text/javascript; charset=utf-8", "index.html": "text/html; charset=utf-8", "app.js": "text/javascript; charset=utf-8", "operate.js": "text/javascript; charset=utf-8", "render.js": "text/javascript; charset=utf-8", "layout.js": "text/javascript; charset=utf-8", "snapshot.js": "text/javascript; charset=utf-8", "drawio.js": "text/javascript; charset=utf-8", "viewer.css": "text/css; charset=utf-8" };
+// A request names an asset; it never supplies a path. The files served are exactly these constants, found by an exact Map lookup,
+// so a name like "constructor" or "__proto__" finds nothing and no request text reaches the filesystem.
+const ASSET_FILES = new Map(Object.entries(ASSETS).map(([name, type]) => [name, { path: join(VIEWER, name), type }]));
 const HEADERS = {
   "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
   "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer", "Cache-Control": "no-store"
@@ -53,9 +56,10 @@ export function createApp({ mode, origin, secureCookies = false, sessions, oidc 
     try {
       // Static files are public; they hold no data.
       if (req.method === "GET" || req.method === "HEAD") {
-        if (parts.length === 0) return send(200, await readFile(join(VIEWER, "index.html")), ASSETS["index.html"]);
+        if (parts.length === 0) { const a = ASSET_FILES.get("index.html"); return send(200, await readFile(a.path), a.type); }
         if (parts.length === 1 && parts[0] === "favicon.ico") return send(204, "");
-        if (parts.length === 1 && ASSETS[parts[0]]) return send(200, await readFile(join(VIEWER, parts[0])), ASSETS[parts[0]]);
+        const asset = parts.length === 1 ? ASSET_FILES.get(parts[0]) : undefined;
+        if (asset) return send(200, await readFile(asset.path), asset.type);
       }
 
       if (parts[0] === "auth") {

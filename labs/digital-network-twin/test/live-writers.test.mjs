@@ -452,3 +452,12 @@ test("manual review: an uncertain commit with no saved job id shows the id captu
   assert.equal(rec.operation.manualReview.jobId, "77");
   assert.equal(f.commits, 1);
 });
+
+test("Palo Alto live: a reply with a very long, malformed opening tag is rejected quickly, not after catastrophic backtracking", async () => {
+  const { panReply } = await import("../server/adapters/paloalto.mjs");
+  const started = Date.now();
+  for (const text of [`<response ${"a=\"b\" ".repeat(60_000)}`, `<response ${" ".repeat(200_000)}status`, `<response${"x".repeat(300_000)}`]) assert.throws(() => panReply(text), /pan_unexpected_response/);
+  assert.ok(Date.now() - started < 1000, "linear time");
+  assert.equal(panReply('<response status="success" code="19"><result/></response>').includes("success"), true);
+  assert.throws(() => panReply('<response status="error"><msg>x</msg></response>'), /pan_request_rejected/);
+});

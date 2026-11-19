@@ -62,8 +62,10 @@ export function createSnapshotStore({ dir }) {
     async read(digest, { scope }) {
       needScope(scope);
       if (!HEX.test(digest)) throw new Error("not_found");
-      if (!(await rows()).some((r) => r.digest === digest && r.scope === scope)) throw new Error("not_found");
-      return this.readTrusted(digest);
+      // The file read is named by the index row (our own data), not by the request's text.
+      const row = (await rows()).find((r) => r.digest === digest && r.scope === scope);
+      if (!row) throw new Error("not_found");
+      return this.readTrusted(row.digest);
     },
 
     /** For trusted tools only (integrity checks, migration). Not reachable from the API. */

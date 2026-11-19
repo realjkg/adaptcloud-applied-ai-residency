@@ -28,7 +28,7 @@ export function loadTargets(list, { live }) {
       if (t.environment !== "lab" || t.disposable !== true) problems.push(`${at} must be a disposable lab target`);
       if (!HOST.test(String(t.host ?? "")) || String(t.host).includes("*")) problems.push(`${at}.host must be an exact host name`);
       if (!ENVNAME.test(String(t.credentialEnv ?? ""))) problems.push(`${at}.credentialEnv must name an environment variable`);
-      const supported = LIVE_CHANGE_TYPES[t.vendor] ?? [];
+      const supported = Object.hasOwn(LIVE_CHANGE_TYPES, t.vendor) ? LIVE_CHANGE_TYPES[t.vendor] : [];
       for (const c of t.changeTypes ?? []) if (!supported.includes(c)) problems.push(`${at}.changeTypes includes ${c}, which has no live adapter`);
       if (!Array.isArray(t.access?.principals) || t.access.principals.length === 0 || t.access.principals.some((x) => typeof x !== "string" || x.length === 0 || x.includes("*"))) problems.push(`${at}.access.principals must list the exact principals allowed to use this target`);
       if (t.vendor === "paloalto") {

@@ -28,7 +28,7 @@ const merge = (parts) => {
 export async function collectSnapshot({ settings, env, fetchImpl, now, snapshotId }) {
   if (settings?.enabled !== true) return { ok: false, refusal: "collector_disabled" };
   if (settings.acknowledgesUntested !== true) return { ok: false, refusal: "untested_not_acknowledged" };
-  const names = Object.keys(settings.vendors ?? {}).filter((v) => COLLECTORS[v]);
+  const names = Object.keys(settings.vendors ?? {}).filter((v) => Object.hasOwn(COLLECTORS, v));
   if (names.length === 0) return { ok: false, refusal: "no_vendors_configured" };
   if (names.some((v) => !Array.isArray(settings.vendors[v].hosts) || settings.vendors[v].hosts.length === 0)) return { ok: false, refusal: "host_allowlist_missing" };
 

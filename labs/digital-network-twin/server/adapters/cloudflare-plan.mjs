@@ -33,7 +33,7 @@ const TEXT = /^[A-Za-z0-9 ._:,-]{1,120}$/;
 /** Validates the flat condition fields a browser form submits. Returns a list of problems. */
 export function validateCondition(p) {
   const bad = [];
-  const f = FIELDS[p.conditionField];
+  const f = typeof p.conditionField === "string" && Object.hasOwn(FIELDS, p.conditionField) ? FIELDS[p.conditionField] : null;
   if (!f) { bad.push(`conditionField must be one of ${CONDITION_FIELDS.join(", ")}`); return bad; }
   if (!f.ops.includes(p.conditionOp)) bad.push(`conditionOp for ${p.conditionField} must be one of ${f.ops.join(", ")}`);
   if (typeof p.conditionValue !== "string" || !f.valid(p.conditionValue)) bad.push("conditionValue is not valid for that field");
