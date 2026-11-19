@@ -12,8 +12,10 @@
     "check": "node tools/twin-sequence.mjs check",
     "verify": "node tools/twin-sequence.mjs verify",
     "health": "node tools/health-agent.mjs",
-    "test": "node --test test/twin-sequence.test.mjs test/health.test.mjs test/render.test.mjs",
+    "test": "node --test test/twin-sequence.test.mjs test/health.test.mjs test/render.test.mjs test/provision.test.mjs",
     "topology": "node tools/render-topology.mjs",
-    "render:iac": "node tools/render-iac.mjs --write"
+    "render:iac": "node tools/render-iac.mjs --write",
+    "roundtrip": "node tools/provision-cli.mjs roundtrip",
+    "provision": "node tools/provision-cli.mjs"
   }
 }

@@ -2,3 +2,6 @@ node_modules/
 .DS_Store
 *.log
 my-config.json
+provision-policy.json
+.twin-lab-state.json
+approval-*.json

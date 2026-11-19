@@ -88,6 +88,27 @@ The renderer refuses to run unless every stage passes its health checks, so no i
 
 Never run `terraform apply` from this lab. Applying to real infrastructure needs its own approval, credentials, and a tested teardown.
 
+## Provision and deprovision (guarded)
+
+The control surface for applying and destroying the twin, tested against a simulated lab tenant. See `docs/PROVISIONING.md`.
+
+```bash
+npm run roundtrip
+```
+
+This applies all 35 operations to a simulated tenant that already holds two objects the twin does not own, destroys them again, and checks that the tenant is unchanged and the two unmanaged objects are untouched. Run it, then read the engine in `tools/provision.mjs`.
+
+The gate refuses by default. It acts only on a tenant named `lab` that is on an exact allowlist, requires a dry run of the exact change set, and requires a human approval bound to one action, one tenant, and the change set's digest. It reads all current state before the first write, never adopts or deletes an object it does not own, reads back every write, and rolls back only what a failed run created.
+
+**Exercise.**
+
+1. Copy `config/provision-policy.example.json` to `provision-policy.json`, set `"enabled": true`, and run `plan`.
+2. Use `approval-template`, complete it as the approver, and `apply`. Then change one attribute in your config and try the same approval again. Say why it is refused.
+3. Edit `.twin-lab-state.json` to change `cloudflare/zone-setting/ssl`, and re-run `plan`. Say what the drift refusal protects against.
+4. Destroy with `"allowDestroy": true`, then destroy again, and explain both results.
+
+There is **no live transport**. The engine cannot reach a vendor or hold a credential, and `docs/PROVISIONING.md` lists everything that must exist before a live adapter is allowed. Provisioning real infrastructure, including a tenant you own, is outside this lab until that list is satisfied.
+
 ## Commands
 
 | Command | What it does |
@@ -100,7 +121,9 @@ Never run `terraform apply` from this lab. Applying to real infrastructure needs
 | `npm run health -- --config=<file> --until=<id>` | Builds the twin to that stage and checks the config at each stage; add `--json` for a report |
 | `npm run topology -- --config=<file>` | Renders the topology as Mermaid; `--out=<file>` writes Markdown |
 | `npm run render:iac` | Renders the change set and Terraform into `rendered/`; refuses an unhealthy config |
-| `npm test` | Runs the test suite: sequence, all 42 health checks, the checklist, and the renderers |
+| `npm run roundtrip` | Applies then destroys the twin on a simulated tenant and proves it is unchanged |
+| `node tools/provision-cli.mjs <plan\|apply\|destroy\|approval-template>` | Guarded provisioning against the simulated tenant; see `docs/PROVISIONING.md` |
+| `npm test` | Runs the test suite: sequence, 42 health checks, the checklist, the renderers, and the provisioning gate |
 
 ## Learning path
 
