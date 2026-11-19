@@ -83,8 +83,8 @@ The engine checks the binding. It does not authenticate the approver, so a deplo
 |---|---|---|
 | Cloudflare | DNS records | Zone settings cannot be owned or restored. The managed ruleset replaces a zone's whole rule entry point. |
 | F5 BIG-IP | HTTP monitor, pool, pool member, virtual server | Certificates and client SSL profiles need a file upload and a TLS option design. The virtual server only references an existing profile. |
-| Palo Alto Networks | none | Rules need service objects the change set does not define, a mark on rules and zones is unconfirmed, and commit (XML API only) is left to a person. See `docs/API_NOTES.md`. |
-| Cisco Meraki | none | The whole rule or peer list is replaced in one call with no documented concurrency guard, and peers need a plaintext secret in the request body. See `docs/API_NOTES.md`. |
+| Palo Alto Networks | none | The change set defines no service objects (the REST API can create them), a mark on rules and zones is unconfirmed, and commit (XML API only) is left to a person. See `docs/API_NOTES.md`. |
+| Cisco Meraki | none | The whole rule or peer list is replaced in one call with no documented concurrency guard, a bad API key returns 404, and redirects must be followed, which the HTTP guard refuses. See `docs/API_NOTES.md`. |
 
 A plan that includes any unsupported object is refused with `object_unsupported` before anything is read, approved, or written, so use `--only` to select exactly the supported objects:
 

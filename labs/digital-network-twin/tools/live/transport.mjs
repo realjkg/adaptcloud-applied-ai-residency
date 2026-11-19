@@ -3,14 +3,16 @@
 //
 // Palo Alto Networks is not implemented. The REST API documentation read for this project (PAN-OS 11.1, see
 // docs/API_NOTES.md) shows that address objects carry a description and that a rule can be moved, so this is a
-// decision, not an impossibility. What stops it: a rule's service is a service object or application-default and
-// the change set defines no service objects, an ownership mark on rules and zones was not confirmed, and commit
-// exists only in the XML API, which this layer deliberately leaves to a person.
+// decision, not an impossibility. What stops it: a rule's service is a service object or application-default, and
+// the REST API can create service objects but the change set does not define them yet, an ownership mark on rules
+// and zones was not confirmed, and commit exists only in the XML API, which this layer leaves to a person.
 //
 // Cisco Meraki is not implemented. An L3 firewall rule has a comment that could carry a mark, but the PUT sends
 // the whole ordered list and no concurrency guard is documented, so a write can overwrite a concurrent change.
 // The third-party VPN peers call also sends the whole peer list, needs a plaintext secret per peer in the body,
-// and the documentation warns that it skips the subnet-overlap validation the dashboard performs.
+// and the documentation warns that it skips the subnet-overlap validation the dashboard performs. Meraki also
+// returns 404 for a bad API key and requires clients to follow redirects, both of which this layer would have to
+// handle first (see docs/API_NOTES.md).
 //
 // NOT TESTED AGAINST A REAL SYSTEM. See docs/adr/0001-live-provisioning-authorization.md.
 
@@ -19,8 +21,8 @@ import { createF5Adapter, UNSUPPORTED_REASON as F5_NOTE } from "./f5.mjs";
 import { createGuardedHttp } from "./guarded-http.mjs";
 
 const NOTES = {
-  paloalto: "not implemented: rules need service objects the change set does not define, a mark on rules and zones is unconfirmed, and commit (XML API only) is left to a person",
-  meraki: "not implemented: the whole rule or peer list is replaced in one call with no concurrency guard, and peers need a plaintext secret in the request body",
+  paloalto: "not implemented: the change set defines no service objects, a mark on rules and zones is unconfirmed, and commit (XML API only) is left to a person",
+  meraki: "not implemented: the whole rule or peer list is replaced in one call with no concurrency guard, a bad key returns 404, and redirects must be followed",
   cloudflare: CLOUDFLARE_NOTE,
   f5: F5_NOTE
 };
