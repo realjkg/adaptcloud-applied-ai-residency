@@ -90,7 +90,7 @@ binds to 127.0.0.1. Run it inside the customer's network, not on a public host.
 - Collector response shapes follow `docs/API_NOTES.md` and are unverified against live devices. The F5 collector does
   not read monitors or client SSL profiles, and the Palo Alto collector reads the first member of each list.
 
-- The Palo Alto XML calls (partial commit, jobs, pending list, running config) are unconfirmed on a real device.
+- The Palo Alto partial commit request matches the PAN-OS documentation. The job-status, pending-list, and running-config response shapes are unconfirmed on a real device. This is a standalone firewall scope; Panorama device-group scoping and push to managed firewalls are not implemented.
 - The Meraki exclusive-window confirmation is a human attestation, not a lock.
 
 Rollback: delete `server/`, `tools/collect/`, `viewer/operate.js`, the two test files, and this file, and restore the

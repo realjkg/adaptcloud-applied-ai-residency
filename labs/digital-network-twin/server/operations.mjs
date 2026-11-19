@@ -145,7 +145,7 @@ export function createOperations({ targets, adapters, adapterFor = (t) => adapte
         await save();
         await audit.record({ event: "operation.executing", operation: id, actor: user.subject, digest: op.planDigest });
         let result;
-        try { result = await r.adapter.execute(op.plan, { params: op.params, changeType: op.changeType, target: r.target }); } catch { result = { outcome: "uncertain", reason: "executor_error" }; }
+        try { result = await r.adapter.execute(op.plan, { params: op.params, changeType: op.changeType, target: r.target, onJobQueued: async (jobId) => { op.jobId = jobId; await save(); await audit.record({ event: "operation.commit_queued", operation: id, actor: user.subject, job: jobId }); } }); } catch { result = { outcome: "uncertain", reason: "executor_error" }; }
         op.result = result;
         op.status = result.outcome === "verified" ? "completed" : result.outcome === "failed" ? "failed" : "uncertain";
         await save();

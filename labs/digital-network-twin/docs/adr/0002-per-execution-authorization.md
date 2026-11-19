@@ -15,7 +15,7 @@ The repository owner directed that Palo Alto and Meraki live write adapters be i
 
 ## Scope
 
-- Palo Alto: create an address object on a disposable firewall or dedicated device group. The candidate edit and the commit are separate steps and the approval shows the commit scope. The commit is a partial commit by the API administrator, a queued job is not success, and the running configuration is read back. Planning is refused if the candidate has pending changes. Delete exists only as a rollback of an object this system created.
+- Palo Alto: create an address object on a disposable firewall or dedicated device group. The candidate edit and the commit are separate steps and the approval shows the commit scope. The commit is a partial commit (`type=commit&action=partial`) limited to the API administrator, with shared objects and device-and-network excluded, and it is exposed only as two typed adapter methods, never as a generic XML call. A queued job is not success: the job id is persisted before polling, the job reply must name that id, and the running configuration is read back. A reply of "no changes to commit" still requires the read-back. An unreadable commit reply is reconciled against the running configuration and the commit is never resubmitted. Planning is refused if the candidate has pending changes. Delete exists only as a rollback of an object this system created.
 - Meraki: add an L3 firewall rule to a disposable MX network. The approver sees the whole ordered before and after list. A list that cannot be round-tripped is refused. Because the endpoint replaces the whole list with no conditional update, the approver must confirm an exclusive change window. Remove exists only as a rollback of a rule this system added.
 - Meraki SD-WAN policy changes are a separately allowlisted change type. They are implemented for the simulator only. A live target that lists one is refused when settings load.
 - Cloudflare DNS and F5 objects keep their adapters. Their approvals are now bound to the baseline and expire, and execution re-checks drift.
@@ -28,7 +28,7 @@ The repository owner directed that Palo Alto and Meraki live write adapters be i
 
 ## Known limits
 
-- Palo Alto XML commit, job, pending-change, and running-config calls follow the documentation read and the author's understanding of response shapes. The pending-change listing in particular (`show config list changes`) was not confirmed on a real device. A shape mismatch fails closed, so expect to adjust on first contact.
+- The partial-commit request form and the "no changes to commit" and job-enqueued replies were checked against the PAN-OS commit documentation. The job-status, pending-change, and running-config calls follow the author's understanding of response shapes. The pending-change listing in particular (`show config list changes`) was not confirmed on a real device. A shape mismatch fails closed, so expect to adjust on first contact.
 - A fresh read detects drift before a Meraki write but cannot prevent an out-of-band edit during it. The exclusive-window confirmation is a human attestation, not a technical lock.
 - Meraki redirects are not followed. The target host must be the regional host.
 - Approvals bind to identities from sign-in. They are as strong as the identity provider's session, not a hardware-backed signature.

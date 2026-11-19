@@ -19,7 +19,7 @@ const json = (b, status = 200) => new Response(JSON.stringify(b), { status, head
 const xml = (b, status = 200) => new Response(b, { status, headers: { "content-type": "application/xml" } });
 
 // ---- fake PAN-OS: a candidate config, a running config, pending changes, and commit jobs
-function fakePan({ jobPolls = 1, jobResult = "OK", pending = [], loseRestReply = false, loseCommitReply = false, foreignAfterPost = false } = {}) {
+function fakePan({ jobPolls = 1, jobResult = "OK", pending = [], loseRestReply = false, loseCommitReply = false, foreignAfterPost = false, commitNoChanges = false, garbleCommitReply = false, wrongJobId = false, firstPoll = null } = {}) {
   const f = { candidate: new Map(), running: new Map(), pending: [...pending], calls: [], jobs: new Map(), commitCmd: null, urls: [], keyInUrl: false };
   f.fetch = async (url, init) => {
     const u = new URL(url);
@@ -35,8 +35,13 @@ function fakePan({ jobPolls = 1, jobResult = "OK", pending = [], loseRestReply =
     if (u.pathname === "/api/") {
       const p = u.searchParams;
       if (p.get("type") === "op" && p.get("cmd").includes("<changes/>")) return xml(`<response status="success"><result><changes>${f.pending.map((m) => `<member>${m}</member>`).join("")}</changes></result></response>`);
-      if (p.get("type") === "commit") { f.commitCmd = p.get("cmd"); f.jobs.set("77", 0); f.running = new Map(f.candidate); f.pending = []; if (loseCommitReply) throw new TypeError("socket hang up"); return xml(`<response status="success" code="19"><result><msg><line>Commit job enqueued with jobid 77</line></msg><job>77</job></result></response>`); }
-      if (p.get("type") === "op" && p.get("cmd").includes("<jobs>")) { const n = f.jobs.get("77") + 1; f.jobs.set("77", n); return n < jobPolls ? xml(`<response status="success"><result><job><status>ACT</status><result>PEND</result></job></result></response>`) : xml(`<response status="success"><result><job><status>FIN</status><result>${jobResult}</result></job></result></response>`); }
+      if (p.get("type") === "commit") {
+        f.commits = (f.commits ?? 0) + 1;
+        if (p.get("action") !== "partial" || !p.get("cmd").includes("<device-and-network>excluded</device-and-network><shared-object>excluded</shared-object><admin><member>twin-api</member></admin>")) return xml(`<response status="error" code="12"><msg>bad commit request</msg></response>`);
+        f.commitCmd = p.get("cmd");
+        if (garbleCommitReply) { f.running = new Map(f.candidate); f.pending = []; return xml("<html>gateway</html>"); }
+        if (commitNoChanges) { f.running = new Map(f.candidate); f.pending = []; return xml(`<response status="success" code="19"><msg>There are no changes to commit.</msg></response>`); } f.jobs.set("77", 0); f.running = new Map(f.candidate); f.pending = []; if (loseCommitReply) throw new TypeError("socket hang up"); return xml(`<response status="success" code="19"><result><msg><line>Commit job enqueued with jobid 77</line></msg><job>77</job></result></response>`); }
+      if (p.get("type") === "op" && p.get("cmd").includes("<jobs>")) { if (firstPoll && f.jobs.get("77") === 0) firstPoll(); const n = f.jobs.get("77") + 1; f.jobs.set("77", n); if (wrongJobId) return xml(`<response status="success"><result><job><id>999</id><status>FIN</status><result>OK</result></job></result></response>`); return n < jobPolls ? xml(`<response status="success"><result><job><id>77</id><status>ACT</status><result>PEND</result></job></result></response>`) : xml(`<response status="success"><result><job><id>77</id><status>FIN</status><result>${jobResult}</result></job></result></response>`); }
       if (p.get("type") === "config" && p.get("action") === "show") {
         const name = /address\/entry\[@name='([^']+)'\]/.exec(p.get("xpath"))?.[1];
         const e = f.running.get(name);
@@ -67,7 +72,8 @@ test("Palo Alto live: candidate edit by REST, partial commit by the API admin, j
   const { done } = await run(panOps(f), { targetId: "lab-fw-1", changeType: "address-object.create", params: ADDR });
   assert.equal(done.ok, true, JSON.stringify(done));
   assert.equal(done.operation.result.jobId, "77");
-  assert.equal(f.commitCmd, "<commit><partial><admin><member>twin-api</member></admin></partial></commit>");
+  assert.equal(f.commitCmd, "<commit><partial><device-and-network>excluded</device-and-network><shared-object>excluded</shared-object><admin><member>twin-api</member></admin></partial></commit>");
+  assert.ok(f.urls.some((u) => u.includes("type=commit") && u.includes("action=partial")));
   assert.ok(f.calls.filter((c) => c.includes("/api/")).length >= 6, "polled and read back");
   assert.equal(f.running.size, 1);
   assert.ok(f.urls.every((u) => !u.includes("SYNTH-PAN-KEY")), "the key is a header, never in a URL");
@@ -193,4 +199,66 @@ test("target settings: live targets must be disposable lab targets with exact ho
   assert.match(bad, /no live adapter/);
   assert.match(bad, /credentialEnv/);
   assert.equal(loadTargets([{ id: "s", vendor: "meraki", label: "Sim", changeTypes: ["sdwan.uplink-preference.set"] }], { live: false }).problems.length, 0);
+});
+
+test("Palo Alto live: the commit and job lookup are typed methods, and neither accepts a command", async () => {
+  const f = fakePan();
+  const http = createGuardedHttp({ allowedHosts: ["fw.lab.example"], fetchImpl: f.fetch });
+  const a = createPaloAltoAdapter({ http, target: PAN_T, env: ENV });
+  assert.equal(typeof a.submitPartialCommit, "function");
+  assert.equal(typeof a.readCommitJob, "function");
+  assert.equal(a.xmlApi, undefined, "no generic XML entry point is exposed");
+  await assert.rejects(a.submitPartialCommit("</member></admin><evil/>"), /invalid_pan_admin/);
+  await assert.rejects(a.readCommitJob("1; <x/>"), /invalid_pan_job_id/);
+  assert.equal(f.calls.length, 0, "invalid input never reaches the network");
+  assert.deepEqual(await a.submitPartialCommit("twin-api"), { jobId: "77" });
+  assert.deepEqual(await a.readCommitJob("77"), { status: "FIN", result: "OK" });
+});
+
+test("Palo Alto live: the job id is persisted before polling begins", async () => {
+  const { readFileSync } = await import("node:fs");
+  const dir = mkdtempSync(join(tmpdir(), "twin-lw-"));
+  const file = join(dir, "ops.json");
+  let persisted = null;
+  const f = fakePan({ jobPolls: 2, firstPoll: () => { persisted = JSON.parse(readFileSync(file, "utf8"))[0].jobId; } });
+  const http = createGuardedHttp({ allowedHosts: ["fw.lab.example"], fetchImpl: f.fetch });
+  const adapter = createPaloAltoAdapter({ http, target: PAN_T, env: ENV, sleep: async () => {}, pollMs: 0, maxPolls: 5 });
+  const ops = createOperations({ targets: new Map([[PAN_T.id, PAN_T]]), adapters: { paloalto: adapter }, audit: createAudit({ file: join(dir, "a.jsonl") }), transportKind: "live", file });
+  const { done } = await run(ops, { targetId: "lab-fw-1", changeType: "address-object.create", params: ADDR });
+  assert.equal(done.ok, true);
+  assert.equal(persisted, "77");
+});
+
+test("Palo Alto live: 'no changes to commit' still requires the running-config read-back", async () => {
+  const f = fakePan({ commitNoChanges: true });
+  const { done } = await run(panOps(f), { targetId: "lab-fw-1", changeType: "address-object.create", params: ADDR });
+  assert.equal(done.operation.status, "completed");
+  assert.equal(done.operation.result.note, "no_changes_to_commit_running_verified");
+
+  const never = fakePan({ commitNoChanges: true });
+  const post = never.fetch;
+  never.fetch = post;
+  // If the object is not in the running configuration, 'no changes' must not be reported as success.
+  const g = fakePan({ commitNoChanges: true });
+  const orig = g.fetch;
+  const http = createGuardedHttp({ allowedHosts: ["fw.lab.example"], fetchImpl: async (u, i) => { const r = await orig(u, i); if (new URL(u).searchParams.get("type") === "commit") g.running = new Map(); return r; } });
+  const adapter = createPaloAltoAdapter({ http, target: PAN_T, env: ENV, sleep: async () => {}, pollMs: 0, maxPolls: 2 });
+  const ops = createOperations({ targets: new Map([[PAN_T.id, PAN_T]]), adapters: { paloalto: adapter }, audit: createAudit({ file: join(mkdtempSync(join(tmpdir(), "x-")), "a") }), transportKind: "live" });
+  const r2 = await run(ops, { targetId: "lab-fw-1", changeType: "address-object.create", params: ADDR });
+  assert.equal(r2.done.operation.status, "uncertain");
+  assert.equal(r2.done.operation.result.reason, "running_differs_after_commit");
+});
+
+test("Palo Alto live: an unreadable commit reply is reconciled against the running config and the commit is never resubmitted", async () => {
+  const f = fakePan({ garbleCommitReply: true });
+  const { done } = await run(panOps(f), { targetId: "lab-fw-1", changeType: "address-object.create", params: ADDR });
+  assert.equal(f.commits, 1);
+  assert.equal(done.operation.result.note, "commit_response_lost_running_verified");
+});
+
+test("Palo Alto live: a job reply for a different job id is not accepted as confirmation", async () => {
+  const f = fakePan({ wrongJobId: true });
+  const { done } = await run(panOps(f), { targetId: "lab-fw-1", changeType: "address-object.create", params: ADDR });
+  assert.equal(done.operation.status, "uncertain");
+  assert.equal(done.operation.result.reason, "commit_job_not_finished");
 });

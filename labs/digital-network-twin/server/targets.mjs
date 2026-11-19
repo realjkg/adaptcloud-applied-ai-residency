@@ -29,7 +29,10 @@ export function loadTargets(list, { live }) {
       if (!ENVNAME.test(String(t.credentialEnv ?? ""))) problems.push(`${at}.credentialEnv must name an environment variable`);
       const supported = LIVE_CHANGE_TYPES[t.vendor] ?? [];
       for (const c of t.changeTypes ?? []) if (!supported.includes(c)) problems.push(`${at}.changeTypes includes ${c}, which has no live adapter`);
-      if (t.vendor === "paloalto") for (const k of ["vsys", "deviceName", "commitAdmin"]) if (typeof t[k] !== "string" || !/^[A-Za-z0-9._-]{1,63}$/.test(t[k])) problems.push(`${at}.${k} is required`);
+      if (t.vendor === "paloalto") {
+        for (const k of ["vsys", "deviceName"]) if (typeof t[k] !== "string" || !/^[A-Za-z0-9._-]{1,63}$/.test(t[k])) problems.push(`${at}.${k} is required`);
+        if (typeof t.commitAdmin !== "string" || !/^[A-Za-z0-9_.@-]{1,128}$/.test(t.commitAdmin)) problems.push(`${at}.commitAdmin is required`);
+      }
       if (t.vendor === "meraki" && !/^[A-Za-z0-9_-]{1,64}$/.test(String(t.networkId ?? ""))) problems.push(`${at}.networkId is required`);
     }
     byId.set(t.id, t);
