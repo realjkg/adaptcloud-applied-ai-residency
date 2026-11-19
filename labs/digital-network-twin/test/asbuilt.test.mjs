@@ -24,13 +24,13 @@ function one(fields, { cfg = config(), vendors = VENDORS } = {}) {
 
 test("the shipped example gives exactly the verdicts the report shows", () => {
   assert.deepEqual(verdicts(shipped()), {
-    "SYN-SEC-001": "met", "SYN-SEC-002": "not_met", "SYN-SEC-003": "not_evaluable", "SYN-SEC-004": "not_evaluable",
+    "SYN-SEC-001": "met", "SYN-SEC-002": "unmet", "SYN-SEC-003": "indeterminable", "SYN-SEC-004": "indeterminable",
     "SYN-VPN-001": "met", "SYN-VPN-002": "met", "SYN-VPN-003": "met",
-    "SYN-TLS-001": "not_evaluable", "SYN-TLS-002": "met", "SYN-TLS-003": "met", "SYN-CERT-001": "met",
+    "SYN-TLS-001": "indeterminable", "SYN-TLS-002": "met", "SYN-TLS-003": "met", "SYN-CERT-001": "met",
     "SYN-LB-001": "met", "SYN-LB-002": "met", "SYN-EDGE-001": "met",
-    "SYN-DOC-001": "attested", "SYN-DOC-002": "manual", "SYN-CORE-001": "not_evaluable"
+    "SYN-DOC-001": "attested", "SYN-DOC-002": "needs_attestation", "SYN-CORE-001": "indeterminable"
   });
-  assert.deepEqual(shipped().claim.counts, { met: 10, not_met: 1, not_evaluable: 4, attested: 1, manual: 1, total: 17 });
+  assert.deepEqual(shipped().claim.counts, { met: 10, unmet: 1, indeterminable: 4, attested: 1, needs_attestation: 1, total: 17 });
 });
 
 test("a field the model does not carry is unknown, and unknown is never a pass", () => {
@@ -40,7 +40,7 @@ test("a field the model does not carry is unknown, and unknown is never a pass",
   assert.equal(evalCondition({ a: "text" }, { field: "a", op: "lacksAny", value: ["x"] }), "unknown");
   assert.equal(evalCondition({}, { field: "a", op: "exists" }), "fail");
   assert.equal(evalCondition({}, { field: "a", op: "notExists" }), "pass");
-  assert.equal(one({ fact: "firewallRules", assert: [{ field: "noSuchField", op: "eq", value: true }] }).verdict, "not_evaluable");
+  assert.equal(one({ fact: "firewallRules", assert: [{ field: "noSuchField", op: "eq", value: true }] }).verdict, "indeterminable");
 });
 
 test("every operator is exercised, and a wrong type never passes by accident", () => {
@@ -57,9 +57,9 @@ test("every operator is exercised, and a wrong type never passes by accident", (
 
 test("a failure outranks an unknown, and an unknown outranks a pass", () => {
   const mixed = one({ fact: "firewallRules", where: [{ field: "action", op: "eq", value: "allow" }], assert: [{ field: "noSuchField", op: "eq", value: true }, { field: "action", op: "eq", value: "deny" }] });
-  assert.equal(mixed.verdict, "not_met", "one condition fails and one is unknown, so the record fails");
+  assert.equal(mixed.verdict, "unmet", "one condition fails and one is unknown, so the record fails");
   const onlyUnknown = one({ fact: "firewallRules", assert: [{ field: "action", op: "in", value: ["allow", "deny"] }, { field: "noSuchField", op: "eq", value: 1 }] });
-  assert.equal(onlyUnknown.verdict, "not_evaluable");
+  assert.equal(onlyUnknown.verdict, "indeterminable");
 
   // Across records: Palo Alto fails outright while Meraki is merely unknown, because the model carries no Meraki source.
   const cfg = config();
@@ -68,13 +68,13 @@ test("a failure outranks an unknown, and an unknown outranks a pass", () => {
   const result = evaluate({ requirements: { requirementSetId: "T", synthetic: true, requirements: [req] }, config: cfg }).results[0];
   assert.equal(result.perVendor.meraki, "unknown");
   assert.equal(result.perVendor.paloalto, "fail");
-  assert.equal(result.verdict, "not_met", "a known violation is not hidden by an unknown elsewhere");
-  assert.equal(shipped().results.find((r) => r.id === "SYN-SEC-003").verdict, "not_evaluable", "without the violation it stays cannot-say");
+  assert.equal(result.verdict, "unmet", "a known violation is not hidden by an unknown elsewhere");
+  assert.equal(shipped().results.find((r) => r.id === "SYN-SEC-003").verdict, "indeterminable", "without the violation it stays cannot-say");
 });
 
 test("it needs at least one matching record to claim anything, unless the author says otherwise", () => {
   const none = one({ fact: "loadBalancing", where: [{ field: "monitorType", op: "eq", value: "tcp" }], assert: [{ field: "memberCount", op: "gte", value: 1 }] });
-  assert.equal(none.verdict, "not_met");
+  assert.equal(none.verdict, "unmet");
   assert.match(none.reason, /found 0 matching records, and 1 are needed/);
   const vacuous = one({ fact: "loadBalancing", minimum: 0, where: [{ field: "monitorType", op: "eq", value: "tcp" }], assert: [{ field: "memberCount", op: "gte", value: 1 }] });
   assert.equal(vacuous.verdict, "met");
@@ -82,16 +82,16 @@ test("it needs at least one matching record to claim anything, unless the author
 
 test("a fact nobody supplies is not evaluable, not a failure", () => {
   const r = one({ fact: "wirelessSettings", assert: [{ field: "x", op: "eq", value: 1 }] });
-  assert.equal(r.verdict, "not_evaluable");
+  assert.equal(r.verdict, "indeterminable");
   assert.match(r.reason, /no vendor mapping supplies wirelessSettings/);
 });
 
 test("scoping a requirement to the vendors it applies to changes what can be claimed", () => {
   const assertion = [{ field: "minVersion", op: "in", value: ["TLSv1.2", "TLSv1.3"] }];
-  assert.equal(one({ fact: "tlsEndpoints", assert: assertion }).verdict, "not_evaluable", "Cloudflare carries no minimum TLS version");
+  assert.equal(one({ fact: "tlsEndpoints", assert: assertion }).verdict, "indeterminable", "Cloudflare carries no minimum TLS version");
   assert.equal(one({ fact: "tlsEndpoints", scope: { vendors: ["f5"] }, assert: assertion }).verdict, "met");
   const gap = one({ fact: "tlsEndpoints", scope: { vendors: ["f5", "cloudflare"] }, assert: assertion });
-  assert.equal(gap.verdict, "not_evaluable");
+  assert.equal(gap.verdict, "indeterminable");
   assert.equal(gap.perVendor.cloudflare, "unknown");
 });
 
@@ -99,30 +99,30 @@ test("a vendor the requirement names but the config lacks is a gap, while a vend
   const cfg = config();
   delete cfg.meraki;
   const named = one({ fact: "vpnTunnels", scope: { vendors: ["paloalto", "meraki"] }, assert: [{ field: "ikeVersion", op: "eq", value: 2 }] }, { cfg });
-  assert.equal(named.verdict, "not_evaluable");
+  assert.equal(named.verdict, "indeterminable");
   assert.match(named.reason, /the config has no section for meraki/);
   const unscoped = one({ fact: "vpnTunnels", assert: [{ field: "ikeVersion", op: "eq", value: 2 }] }, { cfg });
   assert.equal(unscoped.verdict, "met", "with no Meraki in the build, the one tunnel that exists is checked");
   const agree = one({ fact: "vpnTunnels", minimum: 2, agree: { field: "ikeVersion" } }, { cfg });
-  assert.equal(agree.verdict, "not_evaluable");
+  assert.equal(agree.verdict, "indeterminable");
   assert.match(agree.reason, /needs at least two records to compare/);
 });
 
 test("a vendor can be added without changing a requirement, and the same requirement then gives an answer", () => {
   const req = requirements().requirements.find((r) => r.id === "SYN-CORE-001");
   const run = (cfg, vendors) => evaluate({ requirements: { requirementSetId: "T", synthetic: true, requirements: [req] }, config: cfg, vendors }).results[0];
-  assert.equal(run(config(), VENDORS).verdict, "not_evaluable", "before: no mapping for cisco-ios");
+  assert.equal(run(config(), VENDORS).verdict, "indeterminable", "before: no mapping for cisco-ios");
   assert.match(run(config(), VENDORS).reason, /no mapping for cisco-ios/);
 
   const withCisco = { ...VENDORS, "cisco-ios": { present: (c) => typeof c.ciscoIos === "object", provides: { managementAccess: (c) => [{ _path: "ciscoIos.vty", permittedSources: c.ciscoIos.vty.permittedSources, protocols: c.ciscoIos.vty.protocols }] } } };
   const cfg = config();
-  assert.equal(run(cfg, withCisco).verdict, "not_evaluable", "mapped, but the config has no section for it yet");
+  assert.equal(run(cfg, withCisco).verdict, "indeterminable", "mapped, but the config has no section for it yet");
   assert.match(run(cfg, withCisco).reason, /no section for cisco-ios/);
   cfg.ciscoIos = { vty: { permittedSources: ["10.99.0.0/24"], protocols: ["ssh"] } };
   assert.equal(run(cfg, withCisco).verdict, "met");
   cfg.ciscoIos.vty.protocols = ["ssh", "telnet"];
   const failed = run(cfg, withCisco);
-  assert.equal(failed.verdict, "not_met");
+  assert.equal(failed.verdict, "unmet");
   assert.equal(failed.evidence[0].path, "ciscoIos.vty");
 });
 
@@ -131,8 +131,8 @@ test("agreement across vendors is checked, and a disagreement names both ends", 
   cfg.meraki.nonMerakiPeer.ikeVersion = 1;
   const result = evaluate({ requirements: requirements(), config: cfg, attestations: attestations() });
   const v = verdicts(result);
-  assert.equal(v["SYN-VPN-001"], "not_met");
-  assert.equal(v["SYN-VPN-002"], "not_met");
+  assert.equal(v["SYN-VPN-001"], "unmet");
+  assert.equal(v["SYN-VPN-002"], "unmet");
   const evidence = result.results.find((r) => r.id === "SYN-VPN-002").evidence;
   assert.deepEqual(evidence.map((e) => e.vendor).sort(), ["meraki", "paloalto"]);
   assert.deepEqual(evidence.map((e) => e.path).sort(), ["meraki.nonMerakiPeer", "paloalto.ipsec"]);
@@ -142,7 +142,7 @@ test("a literal pre-shared key is detected without being repeated anywhere", () 
   const cfg = config();
   cfg.meraki.nonMerakiPeer.pskRef = "SENTINEL-LITERAL-KEY";
   const result = evaluate({ requirements: requirements(), config: cfg, attestations: attestations() });
-  assert.equal(verdicts(result)["SYN-VPN-003"], "not_met");
+  assert.equal(verdicts(result)["SYN-VPN-003"], "unmet");
   assert.ok(!JSON.stringify(result).includes("SENTINEL-LITERAL-KEY"));
   assert.ok(!renderReport(result).includes("SENTINEL-LITERAL-KEY"));
   assert.equal(authenticationKind("secret-store://x"), "secret-reference");
@@ -188,7 +188,7 @@ test("attestations count only on manual requirements, never override a machine c
   assert.match(validateAttestations({ "SYN-DOC-001": { attestedBy: "role", date: "2026-11-01", reference: "ref", extra: 1 } }, set, "2026-11-18").join(), /may only have/);
   const expired = { "SYN-DOC-001": { attestedBy: "role", date: "2026-01-01", reference: "ref", validUntil: "2026-06-30" } };
   const r = evaluate({ requirements: set, config: config(), attestations: expired }).results.find((x) => x.id === "SYN-DOC-001");
-  assert.equal(r.verdict, "manual");
+  assert.equal(r.verdict, "needs_attestation");
   assert.match(r.reason, /expired/);
   assert.equal(shipped().results.find((x) => x.id === "SYN-DOC-001").attestation.reference, "SYNTH-REVIEW-0042, diagram v3");
 });
@@ -260,7 +260,7 @@ test("the claim is bound to digests of the config and the requirements, and is d
 test("the report speaks only for the modeled config, says what it cannot claim, and escapes requirement text", () => {
   const report = renderReport(shipped());
   assert.match(report, /does not say the real devices match that configuration/);
-  assert.match(report, /"Cannot say" is neither a pass nor a failure/);
+  assert.match(report, /"Indeterminable" is neither a pass nor a failure/);
   assert.match(report, /An attestation is a person's statement and is never counted as a machine check/);
   assert.match(report, /## Where the claim stops, and why/);
   const set = { requirementSetId: "T", synthetic: true, requirements: [{ id: "T-1", title: "a | b\nc <script>", source: "s", kind: "manual" }] };
@@ -288,7 +288,7 @@ test("CLI: prints the report, supports JSON, and --fail-on gates on what was not
   assert.match(cli([]).out, /# As-built requirements claim/);
   assert.equal(JSON.parse(cli(["--json"]).out).claim.counts.total, 17);
   assert.equal(cli([]).status, 0);
-  assert.equal(cli(["--fail-on=not_met"]).status, 1);
+  assert.equal(cli(["--fail-on=unmet"]).status, 1);
   assert.equal(cli(["--fail-on=not_claimed"]).status, 1);
 });
 

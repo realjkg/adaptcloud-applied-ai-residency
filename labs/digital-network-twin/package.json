@@ -20,6 +20,7 @@
     "rto": "node tools/rto-wifi.mjs",
     "demo:check": "node tools/demo-check.mjs",
     "snapshot": "node tools/snapshot.mjs --all",
+    "drawio": "node tools/export-drawio.mjs",
     "viewer": "node viewer/serve.mjs",
     "asbuilt": "node tools/asbuilt.mjs"
   }

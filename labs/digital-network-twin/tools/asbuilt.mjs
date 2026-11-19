@@ -5,8 +5,8 @@
 // against vendor-neutral facts drawn from the twin config, and returns one verdict per requirement:
 //
 //   met            machine-checked against the config, with evidence for every record considered
-//   not_met        at least one record violates it, with the record named
-//   not_evaluable  the config cannot answer it, and the report says what is missing
+//   unmet        at least one record violates it, with the record named
+//   indeterminable  the config cannot answer it, and the report says what is missing
 //   attested       a named role attested on a date with a reference. Not machine-checked, and labeled as such
 //   manual         needs a human attestation and has none
 //
@@ -183,7 +183,7 @@ function evaluateOne(req, ctx) {
     const a = attestations[req.id];
     const live = a && (!a.validUntil || a.validUntil >= asOf);
     if (live) return { ...base, verdict: "attested", reason: `attested by ${a.attestedBy} on ${a.date}, reference ${a.reference}. A human statement, not machine-checked.`, evidence: [], perVendor: {}, attestation: { attestedBy: a.attestedBy, date: a.date, reference: a.reference } };
-    return { ...base, verdict: "manual", reason: a ? "the attestation has expired" : `needs a human attestation${req.evidence ? `: ${req.evidence}` : ""}`, evidence: [], perVendor: {} };
+    return { ...base, verdict: "needs_attestation", reason: a ? "the attestation has expired" : `needs a human attestation${req.evidence ? `: ${req.evidence}` : ""}`, evidence: [], perVendor: {} };
   }
 
   const scoped = req.scope?.vendors ?? null;
@@ -284,16 +284,16 @@ function evaluateOne(req, ctx) {
   const minimum = req.minimum ?? 1;
   const counted = selected.length + unplaced.length;
   let verdict;
-  if (failed > 0) verdict = "not_met";
+  if (failed > 0) verdict = "unmet";
   else if (counted < minimum && gaps.length === 0 && unknown === 0) {
-    verdict = "not_met";
+    verdict = "unmet";
     reason = `found ${counted} matching records, and ${minimum} are needed`;
   } else if (unknown > 0 || gaps.length > 0 || counted < minimum) {
-    verdict = "not_evaluable";
+    verdict = "indeterminable";
   } else verdict = "met";
 
-  if (verdict === "not_met" && !reason) reason = `${failed} of ${selected.length} records violate it`;
-  if (verdict === "not_evaluable" && !reason) {
+  if (verdict === "unmet" && !reason) reason = `${failed} of ${selected.length} records violate it`;
+  if (verdict === "indeterminable" && !reason) {
     const parts = [];
     if (gaps.length) parts.push(gaps.join("; "));
     if (unknown) parts.push(`${unknown} record${unknown === 1 ? "" : "s"} lack a field the model does not carry`);
@@ -312,7 +312,7 @@ export function evaluate({ requirements, config, attestations = {}, vendors = DE
   if (problems.length > 0) throw new Error(`invalid input: ${problems.join("; ")}`);
   const ctx = { config, vendors, attestations, asOf: date };
   const results = requirements.requirements.map((r) => evaluateOne(r, ctx));
-  const counts = { met: 0, not_met: 0, not_evaluable: 0, attested: 0, manual: 0, total: results.length };
+  const counts = { met: 0, unmet: 0, indeterminable: 0, attested: 0, needs_attestation: 0, total: results.length };
   for (const r of results) counts[r.verdict] += 1;
   const present = Object.keys(vendors).filter((v) => vendors[v].present(config)).sort();
   return {
@@ -328,7 +328,7 @@ export function evaluate({ requirements, config, attestations = {}, vendors = DE
 
 const esc = (v) => String(v).replace(/[\r\n\t]+/g, " ").replace(/\|/g, "\\|").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const SYMBOL = { pass: "ok", fail: "FAIL", unknown: "?", gap: "gap", none: "-" };
-const LABEL = { met: "Met", not_met: "NOT MET", not_evaluable: "Cannot say", attested: "Attested", manual: "Needs attestation" };
+const LABEL = { met: "Met", unmet: "Unmet", indeterminable: "Indeterminable", attested: "Attested", needs_attestation: "Needs attestation" };
 
 export function renderReport({ results, claim }) {
   const vendorColumns = [...new Set([...claim.vendorsPresent, ...results.flatMap((r) => Object.keys(r.perVendor))])].sort();
@@ -341,9 +341,9 @@ export function renderReport({ results, claim }) {
   out.push("## What this report claims");
   out.push("");
   const are = (n) => (n === 1 ? "is" : "are");
-  out.push(`Of ${c.total} requirements, **${c.met} ${are(c.met)} met** by machine check against the modeled configuration, **${c.not_met} ${are(c.not_met)} not met**, and **${c.not_evaluable} cannot be answered** from the model. ${c.attested} ${are(c.attested)} attested by a person and ${c.manual} still ${c.manual === 1 ? "needs" : "need"} an attestation.`);
+  out.push(`Of ${c.total} requirements, **${c.met} ${are(c.met)} met** by machine check against the modeled configuration, **${c.unmet} ${are(c.unmet)} unmet**, and **${c.indeterminable} indeterminable** from the model. ${c.attested} ${are(c.attested)} attested by a person and ${c.needs_attestation} still ${c.needs_attestation === 1 ? "needs" : "need"} an attestation.`);
   out.push("");
-  out.push("It speaks only for the configuration with the digests below. It does not say the real devices match that configuration, and it is not evidence about runtime behavior. A requirement marked \"Cannot say\" is neither a pass nor a failure, and the reason says what is missing. An attestation is a person's statement and is never counted as a machine check.");
+  out.push("It speaks only for the configuration with the digests below. It does not say the real devices match that configuration, and it is not evidence about runtime behavior. A requirement marked \"Indeterminable\" is neither a pass nor a failure, and the reason says what is missing. An attestation is a person's statement and is never counted as a machine check.");
   out.push("");
   out.push("| | |");
   out.push("|---|---|");
@@ -360,7 +360,7 @@ export function renderReport({ results, claim }) {
   for (const r of results) out.push(`| ${esc(r.id)} | ${esc(r.title)} | ${esc(r.source)} | ${LABEL[r.verdict]} | ${vendorColumns.map((v) => SYMBOL[r.perVendor[v]] ?? "-").join(" | ")} |`);
   out.push("");
   out.push("Vendor columns: ok means every record from that vendor passed, FAIL that one did not, ? that a record lacks a field the model does not carry, gap that the vendor is named but cannot be checked, and - that the vendor has nothing to say.");
-  const detail = results.filter((r) => ["not_met", "not_evaluable", "manual"].includes(r.verdict));
+  const detail = results.filter((r) => ["unmet", "indeterminable", "needs_attestation"].includes(r.verdict));
   if (detail.length) {
     out.push("");
     out.push("## Where the claim stops, and why");
@@ -438,8 +438,8 @@ export async function main(argv) {
     console.log(`wrote ${flag("--out")}`);
   } else console.log(renderReport(result));
   const failOn = flag("--fail-on");
-  if (failOn === "not_met" && result.claim.counts.not_met > 0) return 1;
-  if (failOn === "not_claimed" && (result.claim.counts.not_met + result.claim.counts.not_evaluable + result.claim.counts.manual) > 0) return 1;
+  if (failOn === "unmet" && result.claim.counts.unmet > 0) return 1;
+  if (failOn === "not_claimed" && (result.claim.counts.unmet + result.claim.counts.indeterminable + result.claim.counts.needs_attestation) > 0) return 1;
   return 0;
 }
 

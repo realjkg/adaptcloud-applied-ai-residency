@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import { buildStory } from "../tools/snapshot.mjs";
 import { diffSnapshots, edgeKey, isEmptyDiff, stableStringify, topologyDigest, validateSnapshot } from "../viewer/snapshot.js";
 import { edgeGeometry, layout, NODE_W } from "../viewer/layout.js";
+import { snapshotToDrawio } from "../viewer/drawio.js";
 import { createViewerServer } from "../viewer/serve.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -83,6 +84,22 @@ test("layout hides nodes and is stable for the same input", () => {
   assert.equal(JSON.stringify([...layout(s.topology).nodes]), JSON.stringify([...layout(s.topology).nodes]));
 });
 
+test("the draw.io export is well-formed, keeps every element and connection, and escapes snapshot text", () => {
+  const s = structuredClone(load("SYNTH-SNAP-004.json"));
+  s.topology.nodes[0].lines = ['A "quoted" <b>&</b>', "second line"];
+  const xml = snapshotToDrawio(s);
+  assert.equal((xml.match(/kind="node"/g) ?? []).length, s.topology.nodes.length);
+  assert.equal((xml.match(/kind="connection"/g) ?? []).length, s.topology.edges.length);
+  assert.equal((xml.match(/kind="group"/g) ?? []).length, s.topology.groups.length);
+  assert.match(xml, /A &quot;quoted&quot; &lt;b&gt;&amp;&lt;\/b&gt;&#10;second line/);
+  assert.ok(!xml.includes("<b>"));
+  assert.match(xml, /danger="true"/);
+  assert.match(xml, /strokeColor=#c62828/);
+  const ids = [...xml.matchAll(/ id="(c_[^"]+)"/g)].map((m) => m[1]);
+  assert.equal(new Set(ids).size, ids.length, "duplicate cell ids");
+  for (const [, ref] of xml.matchAll(/(?:source|target)="([^"]+)"/g)) assert.ok(ids.includes(ref), `dangling reference ${ref}`);
+});
+
 test("the viewer server is read-only, local, and limited to its own files", async () => {
   const server = createViewerServer();
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -103,7 +120,7 @@ test("the viewer server is read-only, local, and limited to its own files", asyn
 
 test("viewer sources avoid markup sinks, network calls to other hosts, and inline code", () => {
   const forbidden = [/innerHTML/, /outerHTML/, /insertAdjacentHTML/, /document\.write/, /\beval\s*\(/, /new Function/, /localStorage|sessionStorage/, /XMLHttpRequest|WebSocket|sendBeacon/, /https?:\/\//];
-  for (const name of ["app.js", "render.js", "layout.js", "snapshot.js"]) {
+  for (const name of ["app.js", "render.js", "layout.js", "snapshot.js", "drawio.js"]) {
     const src = readFileSync(join(root, "viewer", name), "utf8").replace(/\/\/.*$/gm, "").replace(/"http:\/\/www\.w3\.org\/2000\/svg"/g, "");
     for (const re of forbidden) assert.ok(!re.test(src), `${name} matches ${re}`);
   }
@@ -144,6 +161,10 @@ test("in a browser: draws, verifies, diffs, captures SVG and PNG, and rejects a 
     const [pngDownload] = await Promise.all([page.waitForEvent("download"), page.locator("#capture-png").click()]);
     assert.match(pngDownload.suggestedFilename(), /\.png$/);
     assert.equal(readFileSync(await pngDownload.path()).subarray(1, 4).toString(), "PNG");
+
+    const [drawioDownload] = await Promise.all([page.waitForEvent("download"), page.locator("#capture-drawio").click()]);
+    assert.match(drawioDownload.suggestedFilename(), /\.drawio$/);
+    assert.match(readFileSync(await drawioDownload.path(), "utf8"), /<mxfile/);
 
     const hostile = structuredClone(reference());
     hostile.topology.nodes[0].lines = ["<img src=x onerror=window.__pwned=1>"];

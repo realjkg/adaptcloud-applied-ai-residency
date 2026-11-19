@@ -5,7 +5,7 @@ The lab can check a customer's as-built requirements against the twin and say ex
 ```bash
 npm run asbuilt                      # the synthetic example: 17 requirements, 4 vendors
 npm run asbuilt -- --json            # the same, as data
-npm run asbuilt -- --fail-on=not_met # exit 1 if anything is not met
+npm run asbuilt -- --fail-on=unmet # exit 1 if anything is unmet
 ```
 
 The committed output is `docs/ASBUILT_REPORT.md`. **The example is synthetic.**
@@ -16,17 +16,17 @@ Each requirement gets exactly one.
 
 - **Met.** Machine-checked against the modeled configuration. The report lists the evidence: every record considered, the exact config path it came from, and the values compared.
 - **Not met.** At least one record violates it, and the report names the record.
-- **Cannot say.** The model cannot answer it, either way. The reason says what is missing: a vendor with no mapping, a section absent from the config, or a field the model does not carry. This is not a pass.
+- **Indeterminable.** The model cannot answer it, either way. The reason says what is missing: a vendor with no mapping, a section absent from the config, or a field the model does not carry. This is not a pass.
 - **Attested.** A named role attested on a date with a reference. It is a person's statement, labeled as one, and is never counted as a machine check.
 - **Needs attestation.** A manual requirement with no current attestation.
 
 ## Rules that keep a claim exact
 
 1. **Unknown is never a pass.** A field the model does not carry makes a record unknown. A requirement is met only when every record it considered passed.
-2. **A failure outranks an unknown.** If one record fails, the requirement is not met, whatever else is unknown.
+2. **A failure outranks an unknown.** If one record fails, the requirement is unmet, whatever else is unknown.
 3. **An attestation cannot override a machine check.** It may attach only to a manual requirement, and it can expire.
 4. **A typo cannot weaken a requirement.** Operators and keys are a closed set. An unrecognized one is an error, and the claim stops instead of running without it.
-5. **It needs something to check.** With no matching record a requirement is not met, unless the author sets `minimum` to 0.
+5. **It needs something to check.** With no matching record a requirement is unmet, unless the author sets `minimum` to 0.
 6. **The claim is bound to what it was made from.** The report carries digests of the configuration, the requirements, and the attestations. Change any of them and the digest changes.
 7. **It speaks only for the modeled configuration.** It does not say the real devices match, and it is not evidence about runtime behavior.
 
@@ -82,15 +82,15 @@ Requirements do not change. Add an entry to `VENDORS` in `tools/asbuilt-vendors.
 }
 ```
 
-A requirement that names `cisco-ios` then goes from "cannot say" to met or not met, with no edit to the requirement. The same holds for a vendor that already exists. Supplying one more fact makes more requirements answerable, and the report's vendor columns show which. The lab ships mappings for Palo Alto, F5, Meraki, and Cloudflare. **Cisco platforms other than Meraki have no mapping**, so a requirement for them says "cannot say" until one is added.
+A requirement that names `cisco-ios` then goes from "indeterminable" to met or unmet, with no edit to the requirement. The same holds for a vendor that already exists. Supplying one more fact makes more requirements answerable, and the report's vendor columns show which. The lab ships mappings for Palo Alto, F5, Meraki, and Cloudflare. **Cisco platforms other than Meraki have no mapping**, so a requirement for them says "indeterminable" until one is added.
 
 ## From a customer's as-built document to requirements
 
 1. Take each statement the customer wants to be able to claim and give it their id and the section it came from.
 2. If a fact in the table can answer it, write it as an automated requirement. Scope it to the vendors it covers.
-3. If the model cannot answer it, either add the field to a vendor mapping or leave it as "cannot say", which is the true answer today.
+3. If the model cannot answer it, either add the field to a vendor mapping or leave it as "indeterminable", which is the true answer today.
 4. If only a person can answer it, make it manual and say what evidence an attestation must show.
-5. Review the "cannot say" list with the customer. It is the honest list of what the twin does not yet cover.
+5. Review the "indeterminable" list with the customer. It is the honest list of what the twin does not yet cover.
 
 ## Customer data
 

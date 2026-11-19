@@ -64,10 +64,10 @@ export async function runDemoChecks() {
   const requirements = load("requirements", "example-asbuilt.json");
   const claim = evaluate({ requirements, config: reference, attestations: load("requirements", "example-attestations.json") });
   const c = claim.claim.counts;
-  check("8  the as-built claim is exact: 10 met, 1 not met, 4 cannot be answered", c.met === 10 && c.not_met === 1 && c.not_evaluable === 4 && c.attested === 1 && c.manual === 1, `${c.met} met, ${c.not_met} not met, ${c.not_evaluable} cannot say, ${c.attested} attested, ${c.manual} needs attestation`);
+  check("8  the as-built claim is exact: 10 met, 1 unmet, 4 indeterminable", c.met === 10 && c.unmet === 1 && c.indeterminable === 4 && c.attested === 1 && c.needs_attestation === 1, `${c.met} met, ${c.unmet} unmet, ${c.indeterminable} indeterminable, ${c.attested} attested, ${c.needs_attestation} needs attestation`);
   const v = Object.fromEntries(claim.results.map((r) => [r.id, r.verdict]));
-  check("8  an unmodeled Cisco platform is reported as a gap, not a pass", v["SYN-CORE-001"] === "not_evaluable" && claim.results.find((r) => r.id === "SYN-CORE-001").perVendor["cisco-ios"] === "gap", "SYN-CORE-001 cannot say: no mapping for cisco-ios");
-  check("8  scoping a requirement to F5 turns a cannot-say into a met", v["SYN-TLS-001"] === "not_evaluable" && v["SYN-TLS-002"] === "met", "TLS 1.2 across all vendors cannot say; scoped to F5 it is met");
+  check("8  an unmodeled Cisco platform is reported as a gap, not a pass", v["SYN-CORE-001"] === "indeterminable" && claim.results.find((r) => r.id === "SYN-CORE-001").perVendor["cisco-ios"] === "gap", "SYN-CORE-001 cannot say: no mapping for cisco-ios");
+  check("8  scoping a requirement to F5 turns a indeterminable into a met", v["SYN-TLS-001"] === "indeterminable" && v["SYN-TLS-002"] === "met", "TLS 1.2 across all vendors cannot say; scoped to F5 it is met");
   check("8  the committed as-built report is current", readFileSync(join(HERE, "..", "docs", "ASBUILT_REPORT.md"), "utf8") === renderAsBuilt(claim), "docs/ASBUILT_REPORT.md equals the engine output");
 
   return results;

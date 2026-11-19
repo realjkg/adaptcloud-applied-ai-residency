@@ -2,6 +2,7 @@
 // vendor, holds no credential, and has no write action. Every string from a snapshot reaches the page through
 // textContent, so a hostile snapshot cannot add markup.
 
+import { snapshotToDrawio } from "./drawio.js";
 import { paletteFor, renderTopology, serializeSvg } from "./render.js";
 import { diffSnapshots, isEmptyDiff, topologyDigest, validateSnapshot } from "./snapshot.js";
 
@@ -219,6 +220,12 @@ function capturePng() {
   image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(text)}`;
 }
 
+function captureDrawio() {
+  if (!state.snapshot) return say("Nothing to export yet.", true);
+  download(new Blob([snapshotToDrawio(state.snapshot)], { type: "application/xml" }), captureName("drawio"));
+  say(`Exported ${captureName("drawio")}. Open it in draw.io, import it into Lucidchart, or export it to Visio from draw.io.`);
+}
+
 function saveJson() {
   if (!state.snapshot) return say("Nothing to save yet.", true);
   download(new Blob([state.rawText], { type: "application/json" }), captureName("json"));
@@ -284,6 +291,7 @@ async function start() {
   $("zoom-reset").addEventListener("click", () => zoom(0));
   $("capture-svg").addEventListener("click", captureSvg);
   $("capture-png").addEventListener("click", capturePng);
+  $("capture-drawio").addEventListener("click", captureDrawio);
   $("save-json").addEventListener("click", saveJson);
   $("load-file").addEventListener("change", async (e) => {
     const file = e.target.files?.[0];

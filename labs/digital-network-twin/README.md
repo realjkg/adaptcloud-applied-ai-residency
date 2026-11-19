@@ -102,7 +102,7 @@ Models what happens to the corporate Wi-Fi, the address pool, and the site uplin
 npm run asbuilt
 ```
 
-Checks a customer's as-built requirements, written in their own ids, against the twin and says exactly what can and cannot be claimed. Each requirement gets one verdict: met, not met, cannot say, attested, or needs attestation. A field the model does not carry is unknown and never a pass, a failure outranks an unknown, and a person's attestation can never override a machine check. Each vendor's config is mapped into shared facts, so one requirement is checked across Palo Alto, F5, Meraki, and Cloudflare, and a vendor is added by adding a mapping, not by rewriting requirements. See `docs/ASBUILT_REQUIREMENTS.md` and the committed `docs/ASBUILT_REPORT.md`. The example is synthetic. Real requirements go in `*.client.json` files, which git ignores.
+Checks a customer's as-built requirements, written in their own ids, against the twin and says exactly what can and cannot be claimed. Each requirement gets one verdict: met, unmet, indeterminable, attested, or needs attestation. A field the model does not carry is unknown and never a pass, a failure outranks an unknown, and a person's attestation can never override a machine check. Each vendor's config is mapped into shared facts, so one requirement is checked across Palo Alto, F5, Meraki, and Cloudflare, and a vendor is added by adding a mapping, not by rewriting requirements. See `docs/ASBUILT_REQUIREMENTS.md` and the committed `docs/ASBUILT_REPORT.md`. The example is synthetic. Real requirements go in `*.client.json` files, which git ignores.
 
 ### Browser viewer
 

@@ -11,6 +11,7 @@ npm scripts only build the sample data and serve the files locally.
 | Snapshot contract v1 and validator | `viewer/snapshot.js` | Built and tested |
 | Synthetic snapshots (a build that grows, then a proposed change) | `snapshots/`, `tools/snapshot.mjs` | Built; `npm run snapshot` regenerates them |
 | Local dev server (127.0.0.1, GET only) | `viewer/serve.mjs` | Built and tested |
+| draw.io export (Lucidchart and Visio through draw.io) | `viewer/drawio.js`, `tools/export-drawio.mjs` | Built and tested; not opened in those tools |
 | Collector that reads vendor admin and account APIs | none | Not built |
 | Sign-in, roles, snapshot storage, scheduling | none | Not built |
 | Any control that changes a vendor | none | Not built, by design |
@@ -32,6 +33,21 @@ They do different jobs, so they are not alternatives. Cursor is an editor for wr
 ```
 vendor APIs (read-only) -> collector (customer environment) -> snapshot store -> static viewer (any host)
 ```
+
+### Vercel, Lovable, or Cursor, with REST or a graph database
+
+| | What it is | REST APIs | Graph database |
+|---|---|---|---|
+| Cursor | An editor for writing code. It hosts nothing. | Not applicable | Not applicable |
+| Vercel | Hosting for static files and serverless functions | A function can call any REST API it can reach | None built in. A function can call a graph database's HTTP API, if the database is reachable from Vercel |
+| Lovable | An app builder with its own stack: React with a Postgres backend (Supabase), auth, and edge functions | Edge functions can call REST APIs | None built in. Postgres is its native store |
+
+All three can call REST. None runs a graph database, so a graph store would be separate, and it would face the same
+reachability limit as the vendor APIs. At this scale a snapshot is already a small graph (nodes, edges, groups) and
+needs no graph database. Revisit one if queries across many snapshots, such as "every path into the app zone over the last
+year", become routine. Recommendation: Vercel or any static host for the viewer, the collector inside the customer's
+environment, and Cursor to write it. Lovable generates its own stack, which would have to be re-checked against this
+repository's boundaries, so it fits a throwaway prototype better than this product.
 
 ## Snapshot contract
 
@@ -70,6 +86,21 @@ provisioning gate (`docs/PROVISIONING.md`), not through the viewer.
 - **Compare**: pick an earlier snapshot to outline additions and count changes.
 
 A capture states when the state was true and when it was drawn, and those can differ.
+
+## Export to draw.io, Lucidchart, and Visio
+
+"Export for draw.io, Lucidchart, Visio" (or `npm run drawio -- --snapshot=snapshots/SYNTH-SNAP-004.json --out=x.drawio`)
+writes an editable diagrams.net file. Each element, connection, and group is a real shape that carries its vendor,
+config path, snapshot ID, and digest as data. Open it in draw.io; Lucidchart imports draw.io files; draw.io exports
+Visio (.vsdx). This was checked as well-formed XML with consistent references. It has not been opened in draw.io,
+Lucidchart, or Visio.
+
+It uses draw.io's built-in shapes, so it does not yet look like vendor stencils (Cisco, Palo Alto, F5 icons). Adding
+them means choosing a stencil per element type and confirming each name in draw.io.
+
+"Terraform to Visio" is not built. Terraform here is generated from the same config as the diagram
+(`tools/render-iac.mjs`), so config to Terraform and config to diagram agree. Reading arbitrary Terraform into a
+diagram would need a parser or plan-JSON reader and a resource-to-shape table per provider.
 
 ## Not yet decided
 
