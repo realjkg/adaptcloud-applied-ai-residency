@@ -146,6 +146,7 @@ The gate refuses by default. It acts only on a tenant named `lab` that is on an 
 | `npm run topology -- --config=<file>` | Renders the topology as Mermaid; `--out=<file>` writes Markdown |
 | `npm run render:iac` | Renders the change set and Terraform into `rendered/`; refuses an unhealthy config |
 | `npm run rto` | Return-to-office Wi-Fi what-if: before and after, where it breaks first, and APs to add |
+| `npm run control:learner:local` | Start the learner service with test-user sign-in, for the manual check in `docs/MANUAL_UI_GUIDE.md` |
 | `npm run control` | Start the control-plane service in simulator mode (sign-in, collection, changes) |
 | `npm run snapshot` / `npm run viewer` | Build the sample snapshots; serve the browser topology viewer on 127.0.0.1 |
 | `npm run asbuilt` | Claim exactly against customer as-built requirements across vendors: five verdicts, evidence for each, bound to digests |
