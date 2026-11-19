@@ -34,9 +34,15 @@ export function createCloudflareAdapter({ http, zoneId, env }) {
 
   async function list(name) {
     if (!HOSTNAME.test(name)) throw new Error("invalid record name");
-    const response = await call("GET", `/dns_records?name=${encodeURIComponent(name)}`);
+    // The documented filter is an object, name.exact, and filters are case-insensitive. The result is filtered again
+    // here, so if the API ever ignored the parameter this twin could still not act on another record by mistake.
+    const response = await call("GET", `/dns_records?name.exact=${encodeURIComponent(name)}`);
     if (response.status !== 200 || response.json?.success !== true || !Array.isArray(response.json.result)) throw new Error("cloudflare read failed");
-    return response.json.result;
+    // An exact-name lookup should fit on one page. More than one page means the filter did not narrow the result,
+    // and acting on a partial view could miss a record, so stop instead of guessing.
+    if ((response.json.result_info?.total_pages ?? 1) > 1) throw new Error("cloudflare read incomplete");
+    const wanted = name.toLowerCase();
+    return response.json.result.filter((record) => String(record.name).toLowerCase() === wanted);
   }
 
   return {
@@ -71,7 +77,8 @@ export function createCloudflareAdapter({ http, zoneId, env }) {
       for (const record of ours) {
         if (!RECORD_ID.test(String(record.id))) throw new Error("unexpected record id");
         const response = await call("DELETE", `/dns_records/${record.id}`);
-        if (response.status !== 200 || response.json?.success !== true) throw new Error("cloudflare delete failed");
+        // The documented 200 response is { result: { id } } with no success flag, so success is the status and the id.
+        if (response.status !== 200 || response.json?.success === false || response.json?.result?.id !== record.id) throw new Error("cloudflare delete failed");
       }
       return { ok: true, outcome: "deleted" };
     }

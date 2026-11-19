@@ -19,8 +19,10 @@ export const ENV = { CLOUDFLARE_API_TOKEN: CF_TOKEN, BIGIP_USERNAME: BIGIP_USER,
  * @param {boolean} [options.corruptVirtual] return a changed destination when reading a virtual server
  * @param {boolean} [options.escapeSend] return monitor send strings with escaped CR and LF
  * @param {boolean} [options.failReads] every GET returns 500
+ * @param {boolean} [options.ignoreNameFilter] the Cloudflare list returns every record, as if the filter were ignored
+ * @param {number} [options.dnsPages] total_pages reported by the Cloudflare list
  */
-export function createFakeVendors({ failPostOn = [], corruptVirtual = false, escapeSend = false, failReads = false } = {}) {
+export function createFakeVendors({ failPostOn = [], corruptVirtual = false, escapeSend = false, failReads = false, ignoreNameFilter = false, dnsPages = 1 } = {}) {
   const requests = [];
   const dns = [];
   const f5 = { monitor: new Map(), pool: new Map(), virtual: new Map(), members: new Map() };
@@ -34,8 +36,10 @@ export function createFakeVendors({ failPostOn = [], corruptVirtual = false, esc
     if (parts[4] !== "dns_records") return json(404, { success: false });
     if (method === "GET") {
       if (failReads) return json(500, { success: false });
-      const name = url.searchParams.get("name");
-      return json(200, { success: true, result: dns.filter((record) => record.name === name) });
+      // The documented filter is name.exact, and filters are case-insensitive. An API that ignored it would return every record.
+      const wanted = url.searchParams.get("name.exact");
+      const matches = ignoreNameFilter || wanted === null ? dns : dns.filter((record) => record.name.toLowerCase() === wanted.toLowerCase());
+      return json(200, { success: true, result: matches, result_info: { page: 1, per_page: 100, count: matches.length, total_count: dns.length, total_pages: dnsPages } });
     }
     if (method === "POST") {
       const record = { id: hex32(counter++), type: body.type, name: body.name, content: body.content, proxied: body.proxied, ttl: body.ttl, comment: body.comment };
@@ -46,7 +50,8 @@ export function createFakeVendors({ failPostOn = [], corruptVirtual = false, esc
       const index = dns.findIndex((record) => record.id === parts[5]);
       if (index < 0) return json(404, { success: false });
       dns.splice(index, 1);
-      return json(200, { success: true, result: { id: parts[5] } });
+      // The documented delete response is { result: { id } } with no success flag.
+      return json(200, { result: { id: parts[5] } });
     }
     return json(405, { success: false });
   }

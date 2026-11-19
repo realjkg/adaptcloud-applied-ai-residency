@@ -83,8 +83,8 @@ The engine checks the binding. It does not authenticate the approver, so a deplo
 |---|---|---|
 | Cloudflare | DNS records | Zone settings cannot be owned or restored. The managed ruleset replaces a zone's whole rule entry point. |
 | F5 BIG-IP | HTTP monitor, pool, pool member, virtual server | Certificates and client SSL profiles need a file upload and a TLS option design. The virtual server only references an existing profile. |
-| Palo Alto Networks | none | Rules need service objects the change set does not define, zones cannot carry an ownership mark, and commit is left to a person. |
-| Cisco Meraki | none | VPN peers and L3 firewall rules are replaced as whole lists, so one write can remove entries the twin does not own. |
+| Palo Alto Networks | none | Rules need service objects the change set does not define, a mark on rules and zones is unconfirmed, and commit (XML API only) is left to a person. See `docs/API_NOTES.md`. |
+| Cisco Meraki | none | The whole rule or peer list is replaced in one call with no documented concurrency guard, and peers need a plaintext secret in the request body. See `docs/API_NOTES.md`. |
 
 A plan that includes any unsupported object is refused with `object_unsupported` before anything is read, approved, or written, so use `--only` to select exactly the supported objects:
 
@@ -102,6 +102,8 @@ What every live call goes through:
 - **No retries of writes.** A failed write halts the run and rolls back what that run created.
 
 Known residue and limits: BIG-IP leaves the node it creates for a pool member, the F5 adapter changes running configuration only, and read-back normalization against real devices is the most likely place to need adjustment. A mismatch fails closed, as `verification_failed`.
+
+`docs/API_NOTES.md` records what the vendors' API documentation confirms for these calls, what it does not, and the mistakes that reading it exposed.
 
 `test/fake-vendors.mjs` is an in-memory fake of the behavior these adapters assume. Passing tests against it shows the adapters are consistent with those assumptions. It does not show the real APIs behave that way.
 

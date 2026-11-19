@@ -1,12 +1,16 @@
 // Live transport: routes each vendor to its adapter, each through its own guarded HTTP client whose only
 // allowed hosts are that vendor's allowlisted hosts. Vendors without an adapter are refused as unsupported.
 //
-// Palo Alto Networks is not implemented. A security rule needs service objects the change set does not define,
-// zones and address objects that cannot carry an ownership mark, and a commit that this layer deliberately
-// leaves to a person. Guessing at those on a real firewall is not safe.
+// Palo Alto Networks is not implemented. The REST API documentation read for this project (PAN-OS 11.1, see
+// docs/API_NOTES.md) shows that address objects carry a description and that a rule can be moved, so this is a
+// decision, not an impossibility. What stops it: a rule's service is a service object or application-default and
+// the change set defines no service objects, an ownership mark on rules and zones was not confirmed, and commit
+// exists only in the XML API, which this layer deliberately leaves to a person.
 //
-// Cisco Meraki is not implemented. Its non-Meraki VPN peers and its L3 firewall rules are replaced as whole
-// lists, so one write can remove entries this twin does not own, and there is no per-entry ownership mark.
+// Cisco Meraki is not implemented. An L3 firewall rule has a comment that could carry a mark, but the PUT sends
+// the whole ordered list and no concurrency guard is documented, so a write can overwrite a concurrent change.
+// The third-party VPN peers call also sends the whole peer list, needs a plaintext secret per peer in the body,
+// and the documentation warns that it skips the subnet-overlap validation the dashboard performs.
 //
 // NOT TESTED AGAINST A REAL SYSTEM. See docs/adr/0001-live-provisioning-authorization.md.
 
@@ -15,8 +19,8 @@ import { createF5Adapter, UNSUPPORTED_REASON as F5_NOTE } from "./f5.mjs";
 import { createGuardedHttp } from "./guarded-http.mjs";
 
 const NOTES = {
-  paloalto: "not implemented: rules need service objects, zones cannot carry an ownership mark, and commit is left to a person",
-  meraki: "not implemented: VPN peers and firewall rules are replaced as whole lists with no per-entry ownership mark",
+  paloalto: "not implemented: rules need service objects the change set does not define, a mark on rules and zones is unconfirmed, and commit (XML API only) is left to a person",
+  meraki: "not implemented: the whole rule or peer list is replaced in one call with no concurrency guard, and peers need a plaintext secret in the request body",
   cloudflare: CLOUDFLARE_NOTE,
   f5: F5_NOTE
 };

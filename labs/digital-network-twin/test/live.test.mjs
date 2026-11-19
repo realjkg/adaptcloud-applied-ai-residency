@@ -174,6 +174,40 @@ test("cloudflare: delete removes only records this twin owns, and leaves anyone 
   assert.deepEqual(await adapter.delete({ ...dnsKey, name: "gone.lab.example" }, "SYNTH-TWIN-NET-001"), { ok: true, outcome: "not_found" });
 });
 
+test("cloudflare: uses the documented name.exact filter, matches case-insensitively, and accepts the documented delete response", async () => {
+  const { fake, adapter } = cloudflareAdapter();
+  await adapter.create(dnsKey, dnsAttributes, "SYNTH-TWIN-NET-001");
+  fake.requests.length = 0;
+  assert.ok(await adapter.read({ ...dnsKey, name: "APP.lab.example" }), "a different letter case is the same DNS name");
+  assert.match(fake.requests[0].search, /^\?name\.exact=APP\.lab\.example$/);
+  assert.deepEqual(await adapter.delete(dnsKey, "SYNTH-TWIN-NET-001"), { ok: true, outcome: "deleted" });
+  assert.equal(fake.dns.length, 0);
+});
+
+test("cloudflare: if the API ignored the name filter, another record is still never read or deleted", async () => {
+  const { fake, adapter } = cloudflareAdapter({ ignoreNameFilter: true });
+  const owner = "SYNTH-TWIN-NET-001";
+  fake.seedDns({ type: "A", name: "other.lab.example", content: "203.0.113.50", proxied: false, comment: `twin-managed:${owner}` });
+  assert.equal(await adapter.read(dnsKey), null, "a record with another name must not be reported");
+  assert.deepEqual(await adapter.delete(dnsKey, owner), { ok: true, outcome: "not_found" });
+  assert.equal(fake.dns.length, 1, "the other record, even one this twin owns, must survive a delete of a different name");
+});
+
+test("cloudflare: a result spread over several pages stops the run instead of acting on a partial view", async () => {
+  const { adapter } = cloudflareAdapter({ dnsPages: 2 });
+  await assert.rejects(() => adapter.read(dnsKey), /cloudflare read incomplete/);
+  await assert.rejects(() => adapter.delete(dnsKey, "SYNTH-TWIN-NET-001"), /cloudflare read incomplete/);
+});
+
+test("cloudflare: a delete that does not return the deleted record id is treated as a failure", async () => {
+  const { fake, adapter } = cloudflareAdapter();
+  await adapter.create(dnsKey, dnsAttributes, "SYNTH-TWIN-NET-001");
+  const original = fake.fetchImpl;
+  const wrapped = async (href, init) => (init?.method === "DELETE" ? new Response(JSON.stringify({ result: { id: "ffffffffffffffffffffffffffffffff" } }), { status: 200, headers: { "content-type": "application/json" } }) : original(href, init));
+  const http = createGuardedHttp({ allowedHosts: ["api.cloudflare.com"], fetchImpl: wrapped });
+  await assert.rejects(() => createCloudflareAdapter({ http, zoneId: ZONE_ID, env: ENV }).delete(dnsKey, "SYNTH-TWIN-NET-001"), /cloudflare delete failed/);
+});
+
 test("cloudflare: a record owned by a different twin is a conflict, not ours", async () => {
   const { adapter, fake } = cloudflareAdapter();
   fake.seedDns({ type: "A", name: "app.lab.example", content: "198.51.100.2", proxied: true, comment: "twin-managed:OTHER-TWIN" });
