@@ -1,0 +1,70 @@
+{
+  "scenarioId": "SYNTH-RTO-WIFI-001",
+  "synthetic": true,
+  "description": "Synthetic office. 500 people move from one to four days a week in the office, after a Wi-Fi refresh. The values illustrate the mechanics and are not measurements of any real site.",
+  "population": {
+    "returningStaff": 500,
+    "existingOnSiteStaff": 150,
+    "daysPerWeekBefore": 1,
+    "daysPerWeekAfter": 4,
+    "workDaysPerWeek": 5,
+    "peakDayFactor": 1.25
+  },
+  "clients": {
+    "devicesPerUser": 2.5,
+    "fiveGhzShare": 0.85,
+    "activeShare": 0.7
+  },
+  "traffic": {
+    "perUserMbps": 3
+  },
+  "radio": {
+    "channelWidthMHz": 20,
+    "perApThroughputMbps": 101,
+    "recommendedClientsPerRadio": 25,
+    "highDensityThresholdPerAp": 30,
+    "apUplinkMbps": 1000
+  },
+  "limits": {
+    "targetUtilization": 0.7,
+    "watchFraction": 0.8
+  },
+  "network": {
+    "corpVlanPrefix": 22,
+    "reservedAddresses": 10,
+    "leaseCarryover": 0.15,
+    "wanUplinkMbps": 1000,
+    "wanShare": 0.6
+  },
+  "zones": [
+    { "name": "Floor 1 open plan", "aps": 18, "share": 0.30 },
+    { "name": "Floor 2 open plan", "aps": 16, "share": 0.30 },
+    { "name": "Floor 3 open plan", "aps": 14, "share": 0.25 },
+    { "name": "Collaboration and cafe", "aps": 8, "share": 0.15 }
+  ],
+  "provenance": {
+    "population.returningStaff": "client-provided",
+    "population.existingOnSiteStaff": "client-input-needed",
+    "population.daysPerWeekBefore": "client-provided",
+    "population.daysPerWeekAfter": "client-provided",
+    "population.workDaysPerWeek": "placeholder",
+    "population.peakDayFactor": "placeholder",
+    "clients.devicesPerUser": "placeholder",
+    "clients.fiveGhzShare": "placeholder",
+    "clients.activeShare": "placeholder",
+    "traffic.perUserMbps": "meraki-doc",
+    "radio.channelWidthMHz": "meraki-doc",
+    "radio.perApThroughputMbps": "meraki-doc",
+    "radio.recommendedClientsPerRadio": "meraki-doc",
+    "radio.highDensityThresholdPerAp": "meraki-doc",
+    "radio.apUplinkMbps": "client-input-needed",
+    "limits.targetUtilization": "placeholder",
+    "limits.watchFraction": "placeholder",
+    "network.corpVlanPrefix": "client-input-needed",
+    "network.reservedAddresses": "placeholder",
+    "network.leaseCarryover": "placeholder",
+    "network.wanUplinkMbps": "client-input-needed",
+    "network.wanShare": "placeholder",
+    "zones": "client-input-needed"
+  }
+}

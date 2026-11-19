@@ -88,6 +88,14 @@ The renderer refuses to run unless every stage passes its health checks, so no i
 
 Never run `terraform apply` from this lab. Applying to real infrastructure needs its own approval, credentials, and a tested teardown.
 
+## Test a change before it happens: return to office
+
+```bash
+npm run rto
+```
+
+Models what happens to the corporate Wi-Fi, the address pool, and the site uplink when many more people are in the office more days a week, using Meraki's published sizing method. It reports the share of users on a healthy, watch, or over-capacity zone, a day-by-day sweep showing where the first problem appears, and how many access points to add. Inputs are synthetic and every parameter says whether it came from Meraki, is a placeholder, or needs client data. See `docs/RTO_WIFI_SCENARIO.md` for the question to put to a client, the demo, and the data to ask for, and `docs/RTO_WIFI_REPORT.md` for the committed output. It is capacity arithmetic, not an RF survey. Real client numbers go in a `*.client.json` file, which git ignores.
+
 ## Provision and deprovision (guarded)
 
 The control surface for applying and destroying the twin, tested against a simulated lab tenant. See `docs/PROVISIONING.md`.
@@ -121,6 +129,7 @@ The gate refuses by default. It acts only on a tenant named `lab` that is on an 
 | `npm run health -- --config=<file> --until=<id>` | Builds the twin to that stage and checks the config at each stage; add `--json` for a report |
 | `npm run topology -- --config=<file>` | Renders the topology as Mermaid; `--out=<file>` writes Markdown |
 | `npm run render:iac` | Renders the change set and Terraform into `rendered/`; refuses an unhealthy config |
+| `npm run rto` | Return-to-office Wi-Fi what-if: before and after, where it breaks first, and APs to add |
 | `npm run roundtrip` | Applies then destroys the twin on a simulated tenant and proves it is unchanged |
 | `node tools/provision-cli.mjs <plan\|apply\|destroy\|approval-template>` | Guarded provisioning against the simulated tenant; see `docs/PROVISIONING.md` |
 | `npm test` | Runs the test suite: sequence, 42 health checks, the checklist, the renderers, and the provisioning gate |

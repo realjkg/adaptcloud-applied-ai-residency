@@ -6,3 +6,4 @@ provision-policy.json
 provision-policy.live.json
 .twin-lab-state.json
 approval-*.json
+*.client.json
