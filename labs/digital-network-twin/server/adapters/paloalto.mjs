@@ -11,6 +11,7 @@
 // A failure after step 2 leaves the candidate as it is and says so; undoing it is a separately authorized change.
 
 import { secretFromEnv } from "../../tools/live/credentials.mjs";
+import { normalizeTarget } from "../target-resolution.mjs";
 import { guardedWrite, isDefinitive, WriteError } from "./common.mjs";
 import { CHANGE_TYPES, planObject } from "./paloalto-plan.mjs";
 export { CHANGE_TYPES, planObject };
@@ -39,7 +40,8 @@ export function panReply(text) {
   return text;
 }
 
-export function createPaloAltoAdapter({ http, target, env, sleep = sleepDefault, pollMs = 3000, maxPolls = 40 }) {
+export function createPaloAltoAdapter({ http, target: rawTarget, env, sleep = sleepDefault, pollMs = 3000, maxPolls = 40 }) {
+  const target = normalizeTarget(rawTarget.id, rawTarget, "live");
   const key = () => ({ "x-pan-key": secretFromEnv(env, target.credentialEnv).reveal() });
   const rest = `https://${target.host}/restapi/v11.0/Objects/Addresses`;
   const q = (name) => `location=vsys&vsys=${encodeURIComponent(target.vsys)}${name ? `&name=${encodeURIComponent(name)}` : ""}`;
@@ -103,6 +105,14 @@ export function createPaloAltoAdapter({ http, target, env, sleep = sleepDefault,
     vendor: "paloalto",
     changeTypes: CHANGE_TYPES,
     submitPartialCommit, readCommitJob,
+    /** The device that answers must be the one in inventory, checked before anything is staged. */
+    async verifyScope() {
+      const expected = target.scope?.firewallSerial;
+      if (!expected) throw new WriteError("scope_serial_missing");
+      const r = await xmlApi({ type: "op", cmd: "<show><system><info/></system></show>" });
+      const text = panReply(r.text);
+      if (xmlText(text, "serial") !== expected) throw new WriteError("device_does_not_match_inventory");
+    },
     async readState({ params }) { return { object: await candidateObject(params.name), pending: (await pendingList()).length }; },
     async plan({ changeType, params, opId }) {
       const state = { object: await candidateObject(params.name), pending: (await pendingList()).length };

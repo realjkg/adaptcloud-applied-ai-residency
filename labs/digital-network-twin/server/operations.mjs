@@ -18,12 +18,13 @@ import { randomBytes } from "node:crypto";
 import { readFile, rename, writeFile } from "node:fs/promises";
 import { digest, markFor, OPID, same } from "./adapters/common.mjs";
 import { can } from "./roles.mjs";
+import { bindTarget, denyAllPolicy, recheckBoundTarget, TargetError } from "./target-resolution.mjs";
 
 const deny = (code, extra = {}) => ({ ok: false, code, ...extra });
 export const PLAN_TTL_MS = 30 * 60_000;
 const TERMINAL = new Set(["completed", "failed", "uncertain", "rejected", "stale", "expired"]);
 
-export function createOperations({ targets, adapters, adapterFor = (t) => adapters?.[t.vendor], audit, now = () => new Date(), killSwitch = () => false, planTtlMs = PLAN_TTL_MS, liveAuthorized = () => true, transportKind, file = null }) {
+export function createOperations({ resolver, policy = denyAllPolicy, adapters, adapterFor = (t) => adapters?.[t.vendor], audit, now = () => new Date(), killSwitch = () => false, planTtlMs = PLAN_TTL_MS, liveAuthorized = () => true, transportKind, file = null }) {
   const ops = new Map();
   const inflight = new Map();
   let saving = Promise.resolve();
@@ -45,39 +46,42 @@ export function createOperations({ targets, adapters, adapterFor = (t) => adapte
   const view = (op) => ({
     id: op.id, targetId: op.targetId, vendor: op.vendor, changeType: op.changeType, params: op.params, status: op.status,
     requester: op.requester.name, requestedAt: op.requestedAt, expiresAt: op.expiresAt, planDigest: op.planDigest,
-    diff: op.plan.diff, blockers: op.plan.blockers, commitScope: op.plan.commitScope, requiresExclusiveWindow: op.plan.requiresExclusiveWindow,
+    targetFingerprint: op.binding.fingerprint, contextId: op.contextId, diff: op.plan.diff, blockers: op.plan.blockers, commitScope: op.plan.commitScope, requiresExclusiveWindow: op.plan.requiresExclusiveWindow,
     approver: op.approval?.approverName ?? null, exclusiveWindowConfirmed: op.approval?.exclusiveWindow === true,
     result: op.result ?? null, rollbackOf: op.rollbackOf ?? null, transport: transportKind
   });
 
-  const resolve = (targetId, changeType) => {
-    const target = targets.get(targetId);
-    if (!target) return { code: "target_not_allowlisted" };
-    if (!target.changeTypes.includes(changeType)) return { code: "change_type_not_allowed_for_target" };
+  // Everything a vendor client needs comes from the resolver. One error for every reason, so a caller cannot probe the inventory.
+  const adapterAndDef = (target, changeType) => {
     const adapter = adapterFor(target);
     const def = adapter?.changeTypes?.[changeType];
-    if (!def) return { code: "change_type_unsupported" };
-    return { target, adapter, def };
+    return def ? { adapter, def } : null;
   };
+  const codeOf = (error) => (error instanceof TargetError ? error.code.toLowerCase() : "target_not_available");
+  const visible = (user, op) => { try { const t = resolver.resolve(op.targetId, op.changeType); return op.contextId === user.labId && policy.allows({ principalId: user.subject, contextId: user.labId, alias: op.targetId, capability: op.changeType, target: t }); } catch { return false; } };
 
   async function createPlan(user, { targetId, changeType, params, rollbackOf = null, before }) {
-    const r = resolve(targetId, changeType);
-    if (r.code) return deny(r.code);
+    let bound;
+    try { bound = bindTarget(resolver, policy, { principalId: user.subject, contextId: user.labId, alias: targetId, capability: changeType }); } catch (error) { return deny(codeOf(error)); }
+    const ad = adapterAndDef(bound.target, changeType);
+    if (!ad) return deny("target_not_available");
+    const r = { target: bound.target, adapter: ad.adapter, def: ad.def };
     if (r.def.rollbackOnly && !rollbackOf) return deny("rollback_only");
     if (typeof params !== "object" || params === null || Array.isArray(params)) return deny("params_invalid");
     const problems = r.def.validate(params);
     if (problems.length) return deny("params_invalid", { detail: problems.join("; ") });
     const id = `OP-${randomBytes(5).toString("hex").toUpperCase()}`;
+    try { await r.adapter.verifyScope?.(r.target); } catch (error) { await audit.record({ event: "operation.refused", actor: user.subject, target: targetId, reason: "scope_mismatch" }); return deny("scope_mismatch", { detail: String(error?.code ?? "").slice(0, 60) }); }
     let plan;
     try { plan = await r.adapter.plan({ changeType, params, opId: id, target: r.target }); } catch (error) { return deny("plan_failed", { detail: String(error?.code ?? "read_failed").slice(0, 60) }); }
     if (plan.blockers.length) { await audit.record({ event: "operation.refused", actor: user.subject, target: targetId, changeType, blockers: plan.blockers.join(",") }); return deny("blocked", { blockers: plan.blockers }); }
     const requestedAt = now();
     const op = {
       id, targetId, vendor: r.target.vendor, changeType, params, requester: { subject: user.subject, name: user.name }, requestedAt: requestedAt.toISOString(),
-      expiresAt: new Date(requestedAt.getTime() + planTtlMs).toISOString(), status: "pending_approval", plan, rollbackOf, previousValue: plan.previousValue ?? before,
+      expiresAt: new Date(requestedAt.getTime() + planTtlMs).toISOString(), status: "pending_approval", plan, rollbackOf, binding: bound.binding, contextId: user.labId, previousValue: plan.previousValue ?? before,
       baselineDigest: digest(plan.baseline)
     };
-    op.planDigest = digest({ targetId, vendor: op.vendor, changeType, params, baseline: op.baselineDigest, proposed: digest(plan.proposed), commitScope: plan.commitScope ?? null, exclusive: plan.requiresExclusiveWindow });
+    op.planDigest = digest({ targetId, fingerprint: bound.binding.fingerprint, vendor: op.vendor, changeType, params, baseline: op.baselineDigest, proposed: digest(plan.proposed), commitScope: plan.commitScope ?? null, exclusive: plan.requiresExclusiveWindow });
     ops.set(id, op);
     await save();
     await audit.record({ event: "operation.requested", operation: id, actor: user.subject, target: targetId, changeType, digest: op.planDigest, ...(rollbackOf ? { rollbackOf } : {}) });
@@ -86,8 +90,13 @@ export function createOperations({ targets, adapters, adapterFor = (t) => adapte
 
   return {
     ready,
-    /** Targets the browser may see. */
-    targets: () => [...targets.values()].map((t) => ({ id: t.id, label: t.label, vendor: t.vendor, environment: t.environment ?? "lab", disposable: t.disposable === true, changeTypes: t.changeTypes.map((c) => { const d = adapterFor(t)?.changeTypes?.[c]; return { id: c, label: d?.label ?? c, rollbackOnly: d?.rollbackOnly === true, fields: d?.fields ?? [] }; }).filter((c) => !c.rollbackOnly) })),
+    /** Targets this principal may use, with no host, scope, or credential name. */
+    targets: (user) => resolver.aliases().flatMap((alias) => {
+      const t0 = resolver.inspect(alias);
+      if (!t0 || t0.mode !== resolver.mode) return [];
+      const types = [...t0.capabilities].map((c) => { const d = adapterFor(t0)?.changeTypes?.[c]; return { id: c, label: d?.label ?? c, rollbackOnly: d?.rollbackOnly === true, fields: d?.fields ?? [] }; }).filter((c) => !c.rollbackOnly && policy.allows({ principalId: user.subject, contextId: user.labId, alias, capability: c.id, target: t0 }));
+      return types.length ? [{ id: alias, label: t0.label, vendor: t0.vendor, environment: t0.environment ?? "lab", disposable: t0.disposable === true, changeTypes: types }] : [];
+    }),
 
     async request(user, body) {
       await ready;
@@ -102,6 +111,7 @@ export function createOperations({ targets, adapters, adapterFor = (t) => adapte
       if (!can(user.roles, "operation:approve")) return deny("forbidden");
       const op = ops.get(id);
       if (!op) return deny("not_found");
+      if (!visible(user, op)) return deny("not_found");
       if (op.status !== "pending_approval") return deny("not_pending");
       if (op.requester.subject === user.subject) { await audit.record({ event: "operation.self_approval_refused", operation: id, actor: user.subject }); return deny("self_approval"); }
       if (decision === "reject") { op.status = "rejected"; await save(); await audit.record({ event: "operation.rejected", operation: id, actor: user.subject }); return { ok: true, operation: view(op) }; }
@@ -120,7 +130,7 @@ export function createOperations({ targets, adapters, adapterFor = (t) => adapte
     async execute(user, id) {
       await ready;
       const op = ops.get(id);
-      if (!op) return deny("not_found");
+      if (!op || !visible(user, op)) return deny("not_found");
       if (!can(user.roles, "operation:execute")) return deny("forbidden");
       if (TERMINAL.has(op.status) || op.status === "executing") return { ok: op.status === "completed", code: op.status === "completed" ? undefined : "already_" + op.status, operation: view(op), existing: true };
       if (inflight.has(id)) return inflight.get(id);
@@ -128,16 +138,23 @@ export function createOperations({ targets, adapters, adapterFor = (t) => adapte
         const fail = async (code, status) => { if (status) { op.status = status; await save(); } await audit.record({ event: "operation.execute_refused", operation: id, actor: user.subject, reason: code }); return deny(code, { operation: view(op) }); };
         if (op.status !== "approved") return fail("not_approved");
         if (killSwitch()) return fail("kill_switch_engaged");
-        // Re-authorize now, not at approval time.
-        const r = resolve(op.targetId, op.changeType);
-        if (r.code) return fail(r.code);
+        // Re-authorize now, not at approval time: the alias must still resolve to the approved scope, and this principal must still have access.
+        let target;
+        try { target = recheckBoundTarget(resolver, policy, { principalId: user.subject, contextId: op.contextId, binding: op.binding }); } catch (error) {
+          if (error instanceof TargetError && error.code === "APPROVED_TARGET_CHANGED") { await audit.record({ event: "operation.target_changed", operation: id, actor: user.subject }); return fail("approved_target_changed", "stale"); }
+          return fail(codeOf(error));
+        }
+        const ad = adapterAndDef(target, op.changeType);
+        if (!ad) return fail("target_not_available");
+        const r = { target, adapter: ad.adapter };
         if (transportKind === "live" && !liveAuthorized()) return fail("live_not_authorized");
-        if (r.target.environment !== "lab" && transportKind === "live") return fail("environment_not_lab");
+        if (target.environment !== "lab" && transportKind === "live") return fail("environment_not_lab");
+        try { await r.adapter.verifyScope?.(target); } catch { return fail("scope_mismatch"); }
         if (op.approval.planDigest !== op.planDigest || op.approval.approver === op.requester.subject) return fail("approval_invalid");
         if (now() >= new Date(op.expiresAt)) return fail("approval_expired", "expired");
         if (op.plan.requiresExclusiveWindow && op.approval.exclusiveWindow !== true) return fail("exclusive_window_not_confirmed");
         let current;
-        try { current = await r.adapter.readState({ changeType: op.changeType, params: op.params }); } catch { return fail("baseline_unreadable"); }
+        try { current = await r.adapter.readState({ changeType: op.changeType, params: op.params, target }); } catch { return fail("baseline_unreadable"); }
         if (digest(current) !== op.baselineDigest) { await audit.record({ event: "operation.drift", operation: id, actor: user.subject }); return fail("drift_detected_new_plan_required", "stale"); }
 
         op.status = "executing";
@@ -161,17 +178,19 @@ export function createOperations({ targets, adapters, adapterFor = (t) => adapte
       await ready;
       if (!can(user.roles, "operation:request")) return deny("forbidden");
       const op = ops.get(id);
-      if (!op) return deny("not_found");
+      if (!op || !visible(user, op)) return deny("not_found");
       if (!["completed", "uncertain"].includes(op.status)) return deny("nothing_to_roll_back");
-      const r = resolve(op.targetId, op.changeType);
-      if (r.code) return deny(r.code);
+      let t;
+      try { t = resolver.resolve(op.targetId, op.changeType); } catch (error) { return deny(codeOf(error)); }
+      const r = { def: adapterAndDef(t, op.changeType)?.def };
+      if (!r.def) return deny("target_not_available");
       const inverse = r.def.inverse?.(op.params, { opId: op.id, before: op.previousValue, created: op.plan.proposed });
       if (!inverse) return deny("no_rollback_for_this_change");
       return createPlan(user, { targetId: op.targetId, changeType: inverse.changeType, params: inverse.params, rollbackOf: op.id });
     },
 
-    get: (id) => (ops.has(id) ? view(ops.get(id)) : null),
-    list: () => [...ops.values()].map(view).sort((a, b) => b.requestedAt.localeCompare(a.requestedAt)),
+    get: (user, id) => (ops.has(id) && visible(user, ops.get(id)) ? view(ops.get(id)) : null),
+    list: (user) => [...ops.values()].filter((op) => visible(user, op)).map(view).sort((a, b) => b.requestedAt.localeCompare(a.requestedAt)),
     markFor, OPID, same
   };
 }

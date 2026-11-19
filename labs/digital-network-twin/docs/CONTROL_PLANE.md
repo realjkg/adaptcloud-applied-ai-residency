@@ -67,6 +67,16 @@ Two paths, one rule: enabling an adapter authorizes nothing, and every execution
 
 Simulator mode covers every vendor and object, including SD-WAN. Live Palo Alto and Meraki need `targets` in settings (disposable lab targets with exact hosts and a credential variable name) and a `policy.liveAuthorization` that references ADR 0002.
 
+## Target resolution
+
+Two server-side registries: synthetic targets (`server/simulator-targets.mjs`, reserved fixtures) and live targets (deployment settings). The browser supplies an alias; the server supplies the mode, the vendor scope, and the capabilities. Scopes are structured: Palo Alto `managementHost`, `deviceGroup`, `firewallSerial`, `vsys`; Meraki `organizationId`, `networkId`, `applianceSerial`.
+
+- **Binding.** A plan stores a fingerprint of the alias, mode, vendor, capability, and resolved scope. At execution the alias is re-resolved before any vendor client exists, and a different fingerprint marks the plan stale. Repointing an alias, or replaying an Austin approval against Plano, cannot execute. The fingerprint also feeds the plan digest.
+- **Access.** A deny-by-default policy is checked at plan time, for the approver, and again at execution. Learner labs have members and aliases; live targets list exact principals per alias. A principal outside a lab cannot list, approve, execute, or roll back its operations, and an alias they cannot use answers exactly like one that does not exist.
+- **Live inventory checks.** A live registry refuses fixture aliases, fixture scopes, fixture Meraki networks, and placeholder (`.example`) hosts, and every live target must be a disposable lab target with a serial or organization, and an access list. Panorama device groups are refused: this is standalone-firewall scope.
+- **Device verification.** Before staging, and again at execution, the adapter checks the device against inventory: Palo Alto reads the firewall serial; Meraki checks the network belongs to the organization and contains the appliance serial. A mismatch refuses the operation.
+- Live SD-WAN is never implied by a firewall capability: a live target that lists it is refused at load.
+
 ## Learner deployments
 
 `server/learner.mjs` is the entry for learner-facing tasks (for example Fargate). It has no vendor credentials, no live adapter, no collector, and no identity client in its import graph, and nothing it reaches reads the process environment or makes outbound calls; `test/learner-isolation.test.mjs` fails if that changes. Learners still plan, approve, and execute simulated writes, including SD-WAN, through the same workflow. Run it with `--all-interfaces` only behind the platform's network controls, and give the task no credentials and no route to a management network or the live executor. Those deployment controls (task role, security groups, subnets) are outside this repository and are not changed by it.

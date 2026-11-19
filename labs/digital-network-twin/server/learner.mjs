@@ -12,6 +12,8 @@ import { buildStory } from "../tools/snapshot.mjs";
 import { LabTransport } from "../tools/lab-transport.mjs";
 import { SIMULATION_POLICY } from "../tools/simulation-policy.mjs";
 import { createSimulatedAdapters } from "./adapters/simulated.mjs";
+import { SIMULATOR_TARGETS } from "./simulator-targets.mjs";
+import { createLabPolicy, createTargetResolver } from "./target-resolution.mjs";
 import { createApp } from "./app.mjs";
 import { createAudit } from "./audit.mjs";
 import { createChangeService } from "./changes.mjs";
@@ -21,11 +23,19 @@ import { createSessions } from "./sessions.mjs";
 import { createSnapshotStore } from "./store.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+// Each learner lab has its own members and its own simulated devices. A principal outside a lab sees nothing in it.
+export const LABS = {
+  "lab-a": { members: ["persona:viewer", "persona:operator", "persona:approver", "persona:admin"], aliases: ["pan-dfw-edge", "mx-aus-branch"] },
+  "lab-b": { members: ["persona:operator-b", "persona:approver-b"], aliases: ["pan-aus-edge", "mx-plano-branch"] }
+};
+
 export const PERSONAS = {
-  viewer: { name: "Vera Viewer", roles: ["viewer"] },
-  operator: { name: "Omar Operator", roles: ["operator"] },
-  approver: { name: "Ana Approver", roles: ["approver"] },
-  admin: { name: "Adel Admin", roles: ["admin", "approver"] }
+  viewer: { name: "Vera Viewer", roles: ["viewer"], lab: "lab-a" },
+  operator: { name: "Omar Operator", roles: ["operator"], lab: "lab-a" },
+  approver: { name: "Ana Approver", roles: ["approver"], lab: "lab-a" },
+  admin: { name: "Adel Admin", roles: ["admin", "approver"], lab: "lab-a" },
+  "operator-b": { name: "Olga Operator", roles: ["operator"], lab: "lab-b" },
+  "approver-b": { name: "Abel Approver", roles: ["approver"], lab: "lab-b" }
 };
 
 /** Builds the simulator service on a given directory. Used by the CLI and by tests. */
@@ -55,11 +65,9 @@ export async function createSimulatorService({ dir, origin, now = () => new Date
   for (const name of names) await store.save(JSON.parse(story[name]), { savedAt: now().toISOString(), savedBy: "seed" });
   // Palo Alto, Meraki, and SD-WAN writes run against simulated vendors through the same approval workflow as live ones.
   const { sim, adapters } = createSimulatedAdapters();
-  const targets = new Map([
-    ["sim-fw-1", { id: "sim-fw-1", label: "Simulated firewall", vendor: "paloalto", environment: "lab", disposable: true, vsys: "vsys1", commitAdmin: "sim-api", changeTypes: ["address-object.create", "address-object.delete"] }],
-    ["sim-mx-1", { id: "sim-mx-1", label: "Simulated MX and SD-WAN", vendor: "meraki", environment: "lab", disposable: true, changeTypes: ["l3-firewall-rule.add", "l3-firewall-rule.remove", "sdwan.uplink-preference.set"] }]
-  ]);
-  const operations = createOperations({ targets, adapters, audit, now, killSwitch: killSwitch.get, transportKind: "simulator", file: join(dir, "operations.json") });
+  const resolver = createTargetResolver({ mode: "simulator", targets: SIMULATOR_TARGETS });
+  const policy = createLabPolicy(LABS);
+  const operations = createOperations({ resolver, policy, adapters, audit, now, killSwitch: killSwitch.get, transportKind: "simulator", file: join(dir, "operations.json") });
   const app = createApp({ mode: "simulator", origin, sessions, personas: PERSONAS, store, scheduler, changes, operations, audit, killSwitch });
   return { app, store, audit, scheduler, changes, operations, sessions, transport, killSwitch, sim };
 }

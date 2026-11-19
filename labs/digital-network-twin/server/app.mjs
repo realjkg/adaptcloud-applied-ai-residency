@@ -54,7 +54,7 @@ export function createApp({ mode, origin, secureCookies = false, sessions, oidc 
             const who = await oidc.complete({ state: url.searchParams.get("state"), code: url.searchParams.get("code") });
             const roles = rolesFromGroups(who.groups, groupRoles);
             if (roles.length === 0) { await audit.record({ event: "login.denied", actor: who.subject, reason: "no_role" }); return send(403, "no role is assigned to this account"); }
-            const s = sessions.create({ subject: who.subject, name: who.name, roles });
+            const s = sessions.create({ subject: who.subject, name: who.name, roles, labId: "live" });
             await audit.record({ event: "login", actor: who.subject, roles: roles.join(",") });
             return send(302, "", "text/plain", { Location: "/", "Set-Cookie": cookie(s.id, 28800) });
           } catch (error) {
@@ -67,7 +67,7 @@ export function createApp({ mode, origin, secureCookies = false, sessions, oidc 
           const body = await readJson(req, origin);
           const persona = typeof body.persona === "string" && Object.hasOwn(personas, body.persona) ? personas[body.persona] : null;
           if (!persona) return json(401, { error: "unknown_persona" });
-          const s = sessions.create({ subject: `persona:${body.persona}`, name: persona.name, roles: persona.roles });
+          const s = sessions.create({ subject: `persona:${body.persona}`, name: persona.name, roles: persona.roles, labId: persona.lab });
           await audit.record({ event: "login", actor: `persona:${body.persona}`, roles: persona.roles.join(","), mode: "simulator" });
           return json(200, { ok: true }, { "Set-Cookie": cookie(s.id, 28800) });
         }
@@ -81,7 +81,7 @@ export function createApp({ mode, origin, secureCookies = false, sessions, oidc 
       if (parts[0] !== "api") return send(404, "not found");
       if (req.method === "GET" && parts[1] === "mode") return json(200, { mode, signIn: oidc ? "sso" : "persona", personas: mode === "simulator" ? Object.entries(personas).map(([id, p]) => ({ id, name: p.name, roles: p.roles })) : [] });
       if (!session) return json(401, { error: "sign_in_required" });
-      const user = { subject: session.user.subject, name: session.user.name, roles: session.user.roles };
+      const user = { subject: session.user.subject, name: session.user.name, roles: session.user.roles, labId: session.user.labId ?? "live" };
       const writes = !["GET", "HEAD"].includes(req.method);
       if (writes && !sessions.csrfOk(session, req.headers["x-csrf-token"])) return json(403, { error: "csrf" });
       const need = async (permission) => { if (can(user.roles, permission)) return true; await audit.record({ event: "denied", actor: user.subject, permission }); json(403, { error: "forbidden" }); return false; };
@@ -132,11 +132,11 @@ export function createApp({ mode, origin, secureCookies = false, sessions, oidc 
         if (req.method === "POST" && CHG.test(parts[2] ?? "") && parts[3] === "decision") { const r = await changes.decide(user, parts[2], body.decision, body.planDigest); return json(r.ok ? 200 : r.code === "forbidden" || r.code === "self_approval" ? 403 : 409, r); }
         if (req.method === "POST" && CHG.test(parts[2] ?? "") && parts[3] === "execute") { const r = await changes.execute(user, parts[2]); return json(r.ok ? 200 : r.code === "forbidden" ? 403 : 409, r); }
       }
-      if (parts[1] === "targets" && req.method === "GET") { if (!(await need("operation:read"))) return; return json(200, { targets: operations ? operations.targets() : [] }); }
+      if (parts[1] === "targets" && req.method === "GET") { if (!(await need("operation:read"))) return; return json(200, { targets: operations ? operations.targets(user) : [] }); }
       if (parts[1] === "operations" && operations) {
         const OPID = /^OP-[0-9A-F]{10}$/;
-        const code = (r, ok = 200) => (r.ok ? ok : r.code === "forbidden" || r.code === "self_approval" ? 403 : r.code === "not_found" ? 404 : r.code?.startsWith("already_") || r.code === "not_pending" || r.code === "not_approved" ? 409 : 422);
-        if (req.method === "GET" && parts.length === 2) { if (!(await need("operation:read"))) return; return json(200, { operations: operations.list() }); }
+        const code = (r, ok = 200) => (r.ok ? ok : r.code === "forbidden" || r.code === "self_approval" ? 403 : r.code === "not_found" || r.code === "target_not_available" ? 404 : r.code?.startsWith("already_") || r.code === "not_pending" || r.code === "not_approved" ? 409 : 422);
+        if (req.method === "GET" && parts.length === 2) { if (!(await need("operation:read"))) return; return json(200, { operations: operations.list(user) }); }
         if (req.method === "POST" && parts.length === 2) { const r = await operations.request(user, body); return json(code(r, 201), r); }
         if (req.method === "POST" && OPID.test(parts[2] ?? "") && parts[3] === "decision") { const r = await operations.decide(user, parts[2], body); return json(code(r), r); }
         if (req.method === "POST" && OPID.test(parts[2] ?? "") && parts[3] === "execute") { const r = await operations.execute(user, parts[2]); return json(code(r), r); }

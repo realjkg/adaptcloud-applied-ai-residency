@@ -6,11 +6,13 @@ import { join } from "node:path";
 import { createOperations } from "../server/operations.mjs";
 import { createSimulatedAdapters } from "../server/adapters/simulated.mjs";
 import { createAudit } from "../server/audit.mjs";
+import { createTargetResolver, TargetError } from "../server/target-resolution.mjs";
 
-const OP = { subject: "u-op", name: "Op", roles: ["operator"] };
-const AP = { subject: "u-ap", name: "Ap", roles: ["approver"] };
-const AP2 = { subject: "u-ap2", name: "Ap2", roles: ["approver"] };
-const VIEW = { subject: "u-v", name: "V", roles: ["viewer"] };
+const LAB = "lab-t";
+const OP = { subject: "u-op", name: "Op", roles: ["operator"], labId: LAB };
+const AP = { subject: "u-ap", name: "Ap", roles: ["approver"], labId: LAB };
+const AP2 = { subject: "u-ap2", name: "Ap2", roles: ["approver"], labId: LAB };
+const VIEW = { subject: "u-v", name: "V", roles: ["viewer"], labId: LAB };
 const TARGETS = new Map([
   ["lab-fw-1", { id: "lab-fw-1", label: "Lab firewall", vendor: "paloalto", environment: "lab", disposable: true, vsys: "vsys1", commitAdmin: "twin-api", changeTypes: ["address-object.create", "address-object.delete"] }],
   ["lab-mx-1", { id: "lab-mx-1", label: "Lab MX", vendor: "meraki", environment: "lab", disposable: true, changeTypes: ["l3-firewall-rule.add", "l3-firewall-rule.remove", "sdwan.uplink-preference.set"] }],
@@ -25,10 +27,14 @@ function setup({ targets = TARGETS } = {}) {
   const { sim, adapters } = createSimulatedAdapters();
   const audit = createAudit({ file: join(dir, "audit.jsonl"), now: () => new Date(clock.t) });
   let kill = false;
-  const mk = () => createOperations({ targets, adapters, audit, now: () => new Date(clock.t), killSwitch: () => kill, transportKind: "simulator", file: join(dir, "ops.json") });
+  // The test resolver reads the live Map, so removing an alias from it takes effect immediately.
+  const inner = () => createTargetResolver({ mode: "simulator", targets });
+  const resolver = { mode: "simulator", resolve: (a, c) => inner().resolve(a, c), aliases: () => [...targets.keys()], inspect: (a) => inner().inspect(a) };
+  const policy = { allows: () => true };
+  const mk = () => createOperations({ resolver, policy, adapters, audit, now: () => new Date(clock.t), killSwitch: () => kill, transportKind: "simulator", file: join(dir, "ops.json") });
   return { ops: mk(), remake: mk, sim, clock, audit, dir, kill: (v) => { kill = v; } };
 }
-const approve = (t, id, who = AP, extra = {}) => t.ops.decide(who, id, { decision: "approve", planDigest: t.ops.get(id).planDigest, exclusiveWindow: true, ...extra });
+const approve = (t, id, who = AP, extra = {}) => t.ops.decide(who, id, { decision: "approve", planDigest: t.ops.get(OP, id).planDigest, exclusiveWindow: true, ...extra });
 async function fullRun(t, req, extra) {
   const r = await t.ops.request(OP, req);
   assert.equal(r.ok, true, JSON.stringify(r));
@@ -131,7 +137,7 @@ test("the browser cannot choose a target, change type, host, URL, or command out
   ];
   const codes = [];
   for (const b of bad) codes.push((await t.ops.request(OP, b)).code);
-  assert.deepEqual(codes, ["target_not_allowlisted", "change_type_not_allowed_for_target", "change_type_not_allowed_for_target", "change_type_not_allowed_for_target", "params_invalid", "params_invalid"]);
+  assert.deepEqual(codes, ["target_not_available", "target_not_available", "target_not_available", "target_not_available", "params_invalid", "params_invalid"]);
   const r = await t.ops.request(OP, { targetId: "lab-fw-1", changeType: "address-object.create", params: ADDR, url: "https://evil.example/", host: "evil.example", cmd: "<commit/>" });
   assert.equal(r.ok, true);
   assert.ok(!JSON.stringify(r).includes("evil.example"));
@@ -144,7 +150,7 @@ test("a target removed from the allowlist after approval cannot be executed agai
   const r = await t.ops.request(OP, { targetId: "lab-fw-1", changeType: "address-object.create", params: ADDR });
   await approve(t, r.operation.id);
   targets.delete("lab-fw-1");
-  assert.equal((await t.ops.execute(OP, r.operation.id)).code, "target_not_allowlisted");
+  assert.equal((await t.ops.execute(OP, r.operation.id)).code, "not_found", "an alias that no longer resolves reveals nothing");
   assert.equal(t.sim.pan.object.size, 0);
 });
 
@@ -277,7 +283,7 @@ test("operations survive a restart, and one found mid-write becomes uncertain in
   saved[0].status = "executing";
   (await import("node:fs")).writeFileSync(file, JSON.stringify(saved));
   const again = t.remake();
-  const view = (await (async () => { await again.ready; return again.get(r.operation.id); })());
+  const view = (await (async () => { await again.ready; return again.get(OP, r.operation.id); })());
   assert.equal(view.status, "uncertain");
   assert.equal(view.result.reason, "service_restarted_during_write");
   assert.equal((await again.execute(OP, r.operation.id)).existing, true);

@@ -29,11 +29,18 @@ export function loadTargets(list, { live }) {
       if (!ENVNAME.test(String(t.credentialEnv ?? ""))) problems.push(`${at}.credentialEnv must name an environment variable`);
       const supported = LIVE_CHANGE_TYPES[t.vendor] ?? [];
       for (const c of t.changeTypes ?? []) if (!supported.includes(c)) problems.push(`${at}.changeTypes includes ${c}, which has no live adapter`);
+      if (!Array.isArray(t.access?.principals) || t.access.principals.length === 0 || t.access.principals.some((x) => typeof x !== "string" || x.length === 0 || x.includes("*"))) problems.push(`${at}.access.principals must list the exact principals allowed to use this target`);
       if (t.vendor === "paloalto") {
+        if (t.deviceGroup || t.scope?.deviceGroup) problems.push(`${at}: Panorama device-group scoping is not implemented; use a standalone firewall`);
+        if (!/^[A-Za-z0-9-]{6,32}$/.test(String(t.firewallSerial ?? ""))) problems.push(`${at}.firewallSerial is required`);
         for (const k of ["vsys", "deviceName"]) if (typeof t[k] !== "string" || !/^[A-Za-z0-9._-]{1,63}$/.test(t[k])) problems.push(`${at}.${k} is required`);
         if (typeof t.commitAdmin !== "string" || !/^[A-Za-z0-9_.@-]{1,128}$/.test(t.commitAdmin)) problems.push(`${at}.commitAdmin is required`);
       }
-      if (t.vendor === "meraki" && !/^[A-Za-z0-9_-]{1,64}$/.test(String(t.networkId ?? ""))) problems.push(`${at}.networkId is required`);
+      if (t.vendor === "meraki") {
+        if (!/^[A-Za-z0-9_-]{1,64}$/.test(String(t.networkId ?? ""))) problems.push(`${at}.networkId is required`);
+        if (!/^[0-9]{1,20}$/.test(String(t.organizationId ?? ""))) problems.push(`${at}.organizationId is required`);
+        if (!/^[A-Za-z0-9-]{6,32}$/.test(String(t.applianceSerial ?? ""))) problems.push(`${at}.applianceSerial is required`);
+      }
     }
     byId.set(t.id, t);
   }

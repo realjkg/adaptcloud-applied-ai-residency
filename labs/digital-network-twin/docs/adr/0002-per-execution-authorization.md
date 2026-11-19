@@ -13,6 +13,10 @@ The repository owner directed that Palo Alto and Meraki live write adapters be i
 3. Immediately before execution the server re-checks the operator's role, that the target and change type are still allowed, the approval, the kill switch, the recorded authorization, and drift. A changed baseline requires a new plan and approval. A retry returns the existing operation.
 4. The executor reads the result back and audits it. If the outcome is uncertain it reads the target before retrying, retries at most once and only when the target is unchanged, and otherwise stops. A rollback is a separate change with its own plan and approval, and it is refused if the object was edited after this system created it.
 
+## Target binding
+
+Approvals bind to the resolved vendor scope through a fingerprint, not to the alias alone. Access to a target is checked per principal at plan time and at execution. See `docs/CONTROL_PLANE.md`.
+
 ## Scope
 
 - Palo Alto: create an address object on a disposable firewall or dedicated device group. The candidate edit and the commit are separate steps and the approval shows the commit scope. The commit is a partial commit (`type=commit&action=partial`) limited to the API administrator, with shared objects and device-and-network excluded, and it is exposed only as two typed adapter methods, never as a generic XML call. A queued job is not success: the job id is persisted before polling, the job reply must name that id, and the running configuration is read back. A reply of "no changes to commit" still requires the read-back. An unreadable commit reply is reconciled against the running configuration and the commit is never resubmitted. Planning is refused if the candidate has pending changes. Delete exists only as a rollback of an object this system created.

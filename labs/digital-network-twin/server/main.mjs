@@ -22,6 +22,8 @@ import { createScheduler } from "./scheduler.mjs";
 import { createSessions } from "./sessions.mjs";
 import { createSnapshotStore } from "./store.mjs";
 import { loadTargets } from "./targets.mjs";
+import { SIMULATOR_TARGETS } from "./simulator-targets.mjs";
+import { createLivePolicy, createTargetResolver } from "./target-resolution.mjs";
 import { createSimulatorService, main as learnerMain, PERSONAS } from "./learner.mjs";
 
 export { createSimulatorService, PERSONAS };
@@ -56,7 +58,10 @@ export async function createLiveService({ settings, env = process.env, fetchImpl
     }
     return adapterCache.get(t.id);
   };
-  const operations = createOperations({ targets: loaded.targets, adapterFor, audit, now, killSwitch: killSwitch.get, transportKind: "live", liveAuthorized: () => liveWriteAuthorized(settings.policy), file: join(settings.dataDir, "operations.json") });
+  // Live inventory: separate from the synthetic fixtures, which it may not reuse. Access is listed per alias in settings.
+  const resolver = createTargetResolver({ mode: "live", targets: loaded.targets, fixtures: SIMULATOR_TARGETS });
+  const policy = createLivePolicy(Object.fromEntries([...loaded.targets.values()].map((t) => [t.id, t.access.principals])));
+  const operations = createOperations({ resolver, policy, adapterFor, audit, now, killSwitch: killSwitch.get, transportKind: "live", liveAuthorized: () => liveWriteAuthorized(settings.policy), file: join(settings.dataDir, "operations.json") });
   let n = 0;
   const scheduler = createScheduler({
     intervalMs: settings.intervalMs ?? 3_600_000, now,

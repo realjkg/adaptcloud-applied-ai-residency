@@ -1,11 +1,13 @@
 // Meraki MX write adapter: L3 firewall rules. NOT TESTED AGAINST A REAL SYSTEM. See meraki-plan.mjs for the rules it follows.
 
 import { secretFromEnv } from "../../tools/live/credentials.mjs";
+import { normalizeTarget } from "../target-resolution.mjs";
 import { guardedWrite, WriteError } from "./common.mjs";
 import { CHANGE_TYPES, normalizeRules, planRules } from "./meraki-plan.mjs";
 export { CHANGE_TYPES, normalizeRules, planRules };
 
-export function createMerakiAdapter({ http, target, env }) {
+export function createMerakiAdapter({ http, target: rawTarget, env }) {
+  const target = normalizeTarget(rawTarget.id, rawTarget, "live");
   const auth = () => ({ authorization: `Bearer ${secretFromEnv(env, target.credentialEnv).reveal()}` });
   const url = `https://${target.host}/api/v1/networks/${encodeURIComponent(target.networkId)}/appliance/firewall/l3FirewallRules`;
   const get = async () => {
@@ -20,6 +22,15 @@ export function createMerakiAdapter({ http, target, env }) {
   return {
     vendor: "meraki",
     changeTypes: CHANGE_TYPES,
+    /** The network must belong to the inventoried organization and contain the inventoried appliance. */
+    async verifyScope() {
+      const root = `https://${target.host}/api/v1/networks/${encodeURIComponent(target.networkId)}`;
+      const net = await http({ method: "GET", url: root, auth });
+      if (net.status === 404) throw new WriteError("network_not_found_or_key_rejected", 404);
+      if (net.status !== 200 || String(net.json?.organizationId) !== String(target.scope?.organizationId)) throw new WriteError("device_does_not_match_inventory");
+      const devices = await http({ method: "GET", url: `${root}/devices`, auth });
+      if (devices.status !== 200 || !Array.isArray(devices.json) || !devices.json.some((d) => d?.serial === target.scope?.applianceSerial)) throw new WriteError("device_does_not_match_inventory");
+    },
     readState: () => get(),
     async plan({ changeType, params, opId }) {
       const state = await get();

@@ -401,6 +401,7 @@ test("live service: the gate refuses a write without the recorded authorization"
   assert.match(r.code, /live|authorization|environment|transport/);
 });
 
+const AUS_NET = "L_790001000000000001";
 // ---- per-execution authorization over HTTP, and the hardened config-change path
 test("target changes over HTTP: roles, self-approval, digest echo, expiry, drift, and a single write", async () => {
   const t = await service();
@@ -408,9 +409,9 @@ test("target changes over HTTP: roles, self-approval, digest echo, expiry, drift
     const op = await t.client("operator"); const ap = await t.client("approver"); const viewer = await t.client("viewer"); const admin = await t.client("admin");
     const targets = (await viewer.call("GET", "/api/targets")).body.targets;
     assert.ok(targets.every((x) => !("host" in x) && !("credentialEnv" in x)), "no host or credential name reaches the browser");
-    const body = { targetId: "sim-mx-1", changeType: "l3-firewall-rule.add", params: { policy: "allow", protocol: "tcp", srcCidr: "10.40.0.0/24", srcPort: "any", destCidr: "10.20.0.100/32", destPort: "443", comment: "web" } };
+    const body = { targetId: "mx-aus-branch", changeType: "l3-firewall-rule.add", params: { policy: "allow", protocol: "tcp", srcCidr: "10.40.0.0/24", srcPort: "any", destCidr: "10.20.0.100/32", destPort: "443", comment: "web" } };
     assert.equal((await viewer.call("POST", "/api/operations", body)).status, 403);
-    assert.equal((await op.call("POST", "/api/operations", { ...body, targetId: "nowhere" })).status, 422);
+    assert.equal((await op.call("POST", "/api/operations", { ...body, targetId: "nowhere" })).status, 404, "an unknown alias and a forbidden one look the same");
     const req = await op.call("POST", "/api/operations", { ...body, url: "https://evil.example" });
     assert.equal(req.status, 201);
     const id = req.body.operation.id;
@@ -421,7 +422,7 @@ test("target changes over HTTP: roles, self-approval, digest echo, expiry, drift
     assert.equal((await ap.call("POST", `/api/operations/${id}/decision`, { decision: "approve", planDigest: pd, exclusiveWindow: true })).status, 200);
     assert.equal((await ap.call("POST", `/api/operations/${id}/execute`, {})).status, 403, "an approver cannot execute");
     // Drift: someone edits the target after approval.
-    t.svc.sim.mx.rules.push({ comment: "other", policy: "allow", protocol: "any", srcPort: "any", srcCidr: "any", destPort: "any", destCidr: "any", syslogEnabled: false });
+    t.svc.sim.mxFor(AUS_NET).rules.push({ comment: "other", policy: "allow", protocol: "any", srcPort: "any", srcCidr: "any", destPort: "any", destCidr: "any", syslogEnabled: false });
     const stale = await op.call("POST", `/api/operations/${id}/execute`, {});
     assert.equal(stale.status, 422);
     assert.equal(stale.body.code, "drift_detected_new_plan_required");
@@ -434,7 +435,7 @@ test("target changes over HTTP: roles, self-approval, digest echo, expiry, drift
     assert.equal(t.svc.sim.writes, writesBefore + 1);
     assert.ok([x.status, y.status].includes(200));
     assert.equal((await op.call("POST", `/api/operations/${id2}/execute`, {})).body.existing, true);
-    assert.equal(t.svc.sim.mx.rules.length, 2, "the other person's rule survived");
+    assert.equal(t.svc.sim.mxFor(AUS_NET).rules.length, 2, "the other person's rule survived");
     const rb = await op.call("POST", `/api/operations/${id2}/rollback`, {});
     assert.equal(rb.status, 201);
     assert.equal((await op.call("POST", `/api/operations/${rb.body.operation.id}/execute`, {})).status, 409, "a rollback needs its own approval");
@@ -477,13 +478,15 @@ test("live service: target writes are refused without the per-execution recorded
   const fetchImpl = async (url, init) => {
     const u = new URL(url);
     if (u.hostname === "idp.example") return new Response("{}", { status: 404 });
-    if (u.hostname !== "n1.meraki.example") throw new Error(`unexpected host ${u.hostname}`);
+    if (u.hostname !== "n1.meraki.corp.test") throw new Error(`unexpected host ${u.hostname}`);
     if (init.method === "PUT") { mx.rules = JSON.parse(init.body).rules; }
+    if (u.pathname.endsWith("/devices")) return new Response(JSON.stringify([{ serial: "Q2XX-ABCD-1234" }]), { headers: { "content-type": "application/json" } });
+    if (!u.pathname.endsWith("/l3FirewallRules")) return new Response(JSON.stringify({ organizationId: "555001" }), { headers: { "content-type": "application/json" } });
     return new Response(JSON.stringify({ rules: [...mx.rules, { comment: "Default rule", policy: "allow", protocol: "any", srcPort: "Any", srcCidr: "Any", destPort: "Any", destCidr: "Any", syslogEnabled: false }] }), { headers: { "content-type": "application/json" } });
   };
-  const target = { id: "lab-mx-1", label: "Lab MX", vendor: "meraki", environment: "lab", disposable: true, host: "n1.meraki.example", networkId: "N_1", credentialEnv: "MERAKI_KEY_LAB", changeTypes: ["l3-firewall-rule.add", "l3-firewall-rule.remove"] };
+  const target = { id: "lab-mx-1", label: "Lab MX", vendor: "meraki", environment: "lab", disposable: true, host: "n1.meraki.corp.test", organizationId: "555001", applianceSerial: "Q2XX-ABCD-1234", access: { principals: ["u1", "u2"] }, networkId: "N_1", credentialEnv: "MERAKI_KEY_LAB", changeTypes: ["l3-firewall-rule.add", "l3-firewall-rule.remove"] };
   const make = (policyExtra) => createLiveService({ settings: liveSettings(tmp(), { targets: [target], policy: { ...liveSettings(tmp()).policy, ...policyExtra } }), env: { MERAKI_KEY_LAB: "SYNTH-MX" }, fetchImpl });
-  const OPR = { subject: "u1", name: "Op", roles: ["operator"] }; const APR = { subject: "u2", name: "Ap", roles: ["approver"] };
+  const OPR = { subject: "u1", name: "Op", roles: ["operator"], labId: "live" }; const APR = { subject: "u2", name: "Ap", roles: ["approver"], labId: "live" };
   const body = { targetId: "lab-mx-1", changeType: "l3-firewall-rule.add", params: { policy: "allow", protocol: "tcp", srcCidr: "10.40.0.0/24", srcPort: "any", destCidr: "10.20.0.100/32", destPort: "443", comment: "web" } };
 
   const unauthorized = await make({});
@@ -515,7 +518,7 @@ test("in a browser: a simulated SD-WAN change is planned, approved with an exclu
       return page;
     };
     const op = await open("operator");
-    await op.locator("#op-target").selectOption("sim-mx-1");
+    await op.locator("#op-target").selectOption("mx-aus-branch");
     await op.locator("#op-type").selectOption("sdwan.uplink-preference.set");
     await op.locator("[data-field='trafficClass']").fill("voice");
     await op.locator("[data-field='preferredUplink']").selectOption("wan2");
@@ -536,6 +539,6 @@ test("in a browser: a simulated SD-WAN change is planned, approved with an exclu
     await op.waitForSelector("[data-operation]");
     await op.getByRole("button", { name: "Execute" }).click();
     await op.waitForFunction(() => /completed/.test(document.querySelector("[data-operation]").textContent));
-    assert.equal(t.svc.sim.sdwan.prefs.voice, "wan2");
+    assert.equal(t.svc.sim.sdwanFor(AUS_NET).prefs.voice, "wan2");
   } finally { await browser.close(); t.close(); }
 });

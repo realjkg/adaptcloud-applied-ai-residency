@@ -9,12 +9,20 @@ import { createAudit } from "../server/audit.mjs";
 import { createPaloAltoAdapter } from "../server/adapters/paloalto.mjs";
 import { createMerakiAdapter } from "../server/adapters/meraki.mjs";
 import { loadTargets } from "../server/targets.mjs";
+import { SIMULATOR_TARGETS } from "../server/simulator-targets.mjs";
+import { createLivePolicy, createTargetResolver } from "../server/target-resolution.mjs";
 
-const OP = { subject: "u-op", name: "Op", roles: ["operator"] };
-const AP = { subject: "u-ap", name: "Ap", roles: ["approver"] };
+const OP = { subject: "u-op", name: "Op", roles: ["operator"], labId: "live" };
+const AP = { subject: "u-ap", name: "Ap", roles: ["approver"], labId: "live" };
 const ENV = { PANOS_KEY_LAB: "SYNTH-PAN-KEY", MERAKI_KEY_LAB: "SYNTH-MX-KEY" };
-const PAN_T = { id: "lab-fw-1", label: "Lab FW", vendor: "paloalto", environment: "lab", disposable: true, host: "fw.lab.example", vsys: "vsys1", deviceName: "localhost.localdomain", commitAdmin: "twin-api", credentialEnv: "PANOS_KEY_LAB", changeTypes: ["address-object.create", "address-object.delete"] };
-const MX_T = { id: "lab-mx-1", label: "Lab MX", vendor: "meraki", environment: "lab", disposable: true, host: "n1.meraki.example", networkId: "N_1", credentialEnv: "MERAKI_KEY_LAB", changeTypes: ["l3-firewall-rule.add", "l3-firewall-rule.remove"] };
+const PAN_T = { id: "lab-fw-1", label: "Lab FW", vendor: "paloalto", environment: "lab", disposable: true, host: "fw.lab.corp.test", firewallSerial: "007054000123456", access: { principals: ["u-op", "u-ap"] }, vsys: "vsys1", deviceName: "localhost.localdomain", commitAdmin: "twin-api", credentialEnv: "PANOS_KEY_LAB", changeTypes: ["address-object.create", "address-object.delete"] };
+const MX_T = { id: "lab-mx-1", label: "Lab MX", vendor: "meraki", environment: "lab", disposable: true, host: "n1.meraki.corp.test", organizationId: "555001", applianceSerial: "Q2XX-ABCD-1234", access: { principals: ["u-op", "u-ap"] }, networkId: "N_1", credentialEnv: "MERAKI_KEY_LAB", changeTypes: ["l3-firewall-rule.add", "l3-firewall-rule.remove"] };
+const liveOps = (target, adapter) => createOperations({
+  resolver: createTargetResolver({ mode: "live", targets: new Map([[target.id, target]]), fixtures: SIMULATOR_TARGETS }),
+  policy: createLivePolicy({ [target.id]: target.access.principals }),
+  adapters: { [target.vendor]: adapter },
+  audit: createAudit({ file: join(mkdtempSync(join(tmpdir(), "twin-lw-")), "a.jsonl") }), transportKind: "live", liveAuthorized: () => true
+});
 const json = (b, status = 200) => new Response(JSON.stringify(b), { status, headers: { "content-type": "application/json" } });
 const xml = (b, status = 200) => new Response(b, { status, headers: { "content-type": "application/xml" } });
 
@@ -34,6 +42,7 @@ function fakePan({ jobPolls = 1, jobResult = "OK", pending = [], loseRestReply =
     }
     if (u.pathname === "/api/") {
       const p = u.searchParams;
+      if (p.get("type") === "op" && p.get("cmd").includes("<system>")) return xml(`<response status="success"><result><system><serial>${f.serial ?? "007054000123456"}</serial></system></result></response>`);
       if (p.get("type") === "op" && p.get("cmd").includes("<changes/>")) return xml(`<response status="success"><result><changes>${f.pending.map((m) => `<member>${m}</member>`).join("")}</changes></result></response>`);
       if (p.get("type") === "commit") {
         f.commits = (f.commits ?? 0) + 1;
@@ -54,10 +63,8 @@ function fakePan({ jobPolls = 1, jobResult = "OK", pending = [], loseRestReply =
 }
 
 function panOps(f, over = {}) {
-  const http = createGuardedHttp({ allowedHosts: ["fw.lab.example"], fetchImpl: f.fetch });
-  const adapter = createPaloAltoAdapter({ http, target: PAN_T, env: ENV, sleep: async () => {}, pollMs: 0, maxPolls: 5, ...over });
-  const dir = mkdtempSync(join(tmpdir(), "twin-lw-"));
-  return createOperations({ targets: new Map([[PAN_T.id, PAN_T]]), adapters: { paloalto: adapter }, audit: createAudit({ file: join(dir, "a.jsonl") }), transportKind: "live", liveAuthorized: () => true });
+  const http = createGuardedHttp({ allowedHosts: ["fw.lab.corp.test"], fetchImpl: f.fetch });
+  return liveOps(PAN_T, createPaloAltoAdapter({ http, target: PAN_T, env: ENV, sleep: async () => {}, pollMs: 0, maxPolls: 5, ...over }));
 }
 const run = async (ops, req, exclusive = false) => {
   const r = await ops.request(OP, req);
@@ -123,9 +130,10 @@ test("Palo Alto live: only the exact host is contacted, and a wrong host is refu
   const f = fakePan();
   const http = createGuardedHttp({ allowedHosts: ["other.example"], fetchImpl: f.fetch });
   const adapter = createPaloAltoAdapter({ http, target: PAN_T, env: ENV });
-  const ops = createOperations({ targets: new Map([[PAN_T.id, PAN_T]]), adapters: { paloalto: adapter }, audit: createAudit({ file: join(mkdtempSync(join(tmpdir(), "x-")), "a") }), transportKind: "live" });
+  const ops = liveOps(PAN_T, adapter);
   const r = await ops.request(OP, { targetId: "lab-fw-1", changeType: "address-object.create", params: ADDR });
-  assert.equal(r.code, "plan_failed");
+  assert.equal(r.code, "scope_mismatch");
+  assert.equal(r.detail, "host_not_allowlisted");
   assert.equal(f.calls.length, 0);
 });
 
@@ -135,7 +143,12 @@ function fakeMeraki({ rules = [], extraKey = false, loseReply = false, editDurin
   const view = () => [...f.rules.map((r) => (extraKey ? { ...r, vpnPolicy: "x" } : r)), { comment: "Default rule", policy: "allow", protocol: "any", srcPort: "Any", srcCidr: "Any", destPort: "Any", destCidr: "Any", syslogEnabled: false }];
   f.fetch = async (url, init) => {
     if (init.headers.authorization !== `Bearer ${ENV.MERAKI_KEY_LAB}`) return json({ errors: ["Invalid API key"] }, 404);
-    if (init.method === "GET") { f.gets += 1; return json({ rules: view() }); }
+    if (init.method === "GET") {
+      const path = new URL(url).pathname;
+      if (path.endsWith("/devices")) return json([{ serial: f.serial ?? "Q2XX-ABCD-1234" }]);
+      if (!path.endsWith("/l3FirewallRules")) return json({ id: "N_1", organizationId: f.org ?? "555001" });
+      f.gets += 1; return json({ rules: view() });
+    }
     if (init.method === "PUT") {
       const body = JSON.parse(init.body);
       f.puts.push(body);
@@ -149,10 +162,8 @@ function fakeMeraki({ rules = [], extraKey = false, loseReply = false, editDurin
   return f;
 }
 function mxOps(f) {
-  const http = createGuardedHttp({ allowedHosts: ["n1.meraki.example"], fetchImpl: f.fetch });
-  const adapter = createMerakiAdapter({ http, target: MX_T, env: ENV });
-  const dir = mkdtempSync(join(tmpdir(), "twin-lw-"));
-  return createOperations({ targets: new Map([[MX_T.id, MX_T]]), adapters: { meraki: adapter }, audit: createAudit({ file: join(dir, "a.jsonl") }), transportKind: "live" });
+  const http = createGuardedHttp({ allowedHosts: ["n1.meraki.corp.test"], fetchImpl: f.fetch });
+  return liveOps(MX_T, createMerakiAdapter({ http, target: MX_T, env: ENV }));
 }
 const RULE = { policy: "allow", protocol: "tcp", srcCidr: "10.40.0.0/24", srcPort: "any", destCidr: "10.20.0.100/32", destPort: "443", comment: "branch web" };
 const KEEP = { comment: "keep", policy: "deny", protocol: "any", srcPort: "any", srcCidr: "any", destPort: "any", destCidr: "10.0.0.0/8", syslogEnabled: false };
@@ -181,7 +192,9 @@ test("Meraki live: a lost reply is verified by reading and not written twice; a 
   assert.equal(done.operation.result.note, "write_response_lost_state_verified");
   assert.equal(f.puts.length, 1);
   const badKey = mxOps({ ...fakeMeraki(), fetch: async () => json({ errors: ["x"] }, 404) });
-  assert.equal((await badKey.request(OP, { targetId: "lab-mx-1", changeType: "l3-firewall-rule.add", params: RULE })).detail, "network_not_found_or_key_rejected");
+  const rejected = await badKey.request(OP, { targetId: "lab-mx-1", changeType: "l3-firewall-rule.add", params: RULE });
+  assert.equal(rejected.code, "scope_mismatch");
+  assert.equal(rejected.detail, "network_not_found_or_key_rejected");
 });
 
 test("Meraki live: an edit made during the write is reported as uncertain with no repair", async () => {
@@ -193,6 +206,8 @@ test("Meraki live: an edit made during the write is reported as uncertain with n
 
 test("target settings: live targets must be disposable lab targets with exact hosts and only change types the live adapter implements", () => {
   assert.deepEqual(loadTargets([PAN_T, MX_T], { live: true }).problems, []);
+  const unscoped = loadTargets([{ ...PAN_T, firewallSerial: undefined, access: undefined, deviceGroup: "DG-1" }, { ...MX_T, id: "m9", organizationId: undefined, applianceSerial: undefined }], { live: true }).problems.join(" | ");
+  assert.match(unscoped, /firewallSerial/); assert.match(unscoped, /access\.principals/); assert.match(unscoped, /device-group scoping is not implemented/); assert.match(unscoped, /organizationId/); assert.match(unscoped, /applianceSerial/);
   const bad = loadTargets([{ ...PAN_T, environment: "production" }, { ...MX_T, id: "m2", host: "*.meraki.com", changeTypes: ["sdwan.uplink-preference.set"] }, { ...PAN_T, id: "p3", disposable: false, credentialEnv: "lower" }], { live: true }).problems.join(" | ");
   assert.match(bad, /disposable lab target/);
   assert.match(bad, /exact host/);
@@ -203,7 +218,7 @@ test("target settings: live targets must be disposable lab targets with exact ho
 
 test("Palo Alto live: the commit and job lookup are typed methods, and neither accepts a command", async () => {
   const f = fakePan();
-  const http = createGuardedHttp({ allowedHosts: ["fw.lab.example"], fetchImpl: f.fetch });
+  const http = createGuardedHttp({ allowedHosts: ["fw.lab.corp.test"], fetchImpl: f.fetch });
   const a = createPaloAltoAdapter({ http, target: PAN_T, env: ENV });
   assert.equal(typeof a.submitPartialCommit, "function");
   assert.equal(typeof a.readCommitJob, "function");
@@ -221,9 +236,9 @@ test("Palo Alto live: the job id is persisted before polling begins", async () =
   const file = join(dir, "ops.json");
   let persisted = null;
   const f = fakePan({ jobPolls: 2, firstPoll: () => { persisted = JSON.parse(readFileSync(file, "utf8"))[0].jobId; } });
-  const http = createGuardedHttp({ allowedHosts: ["fw.lab.example"], fetchImpl: f.fetch });
+  const http = createGuardedHttp({ allowedHosts: ["fw.lab.corp.test"], fetchImpl: f.fetch });
   const adapter = createPaloAltoAdapter({ http, target: PAN_T, env: ENV, sleep: async () => {}, pollMs: 0, maxPolls: 5 });
-  const ops = createOperations({ targets: new Map([[PAN_T.id, PAN_T]]), adapters: { paloalto: adapter }, audit: createAudit({ file: join(dir, "a.jsonl") }), transportKind: "live", file });
+  const ops = createOperations({ resolver: createTargetResolver({ mode: "live", targets: new Map([[PAN_T.id, PAN_T]]), fixtures: SIMULATOR_TARGETS }), policy: createLivePolicy({ [PAN_T.id]: PAN_T.access.principals }), adapters: { paloalto: adapter }, audit: createAudit({ file: join(dir, "a.jsonl") }), transportKind: "live", liveAuthorized: () => true, file });
   const { done } = await run(ops, { targetId: "lab-fw-1", changeType: "address-object.create", params: ADDR });
   assert.equal(done.ok, true);
   assert.equal(persisted, "77");
@@ -241,9 +256,9 @@ test("Palo Alto live: 'no changes to commit' still requires the running-config r
   // If the object is not in the running configuration, 'no changes' must not be reported as success.
   const g = fakePan({ commitNoChanges: true });
   const orig = g.fetch;
-  const http = createGuardedHttp({ allowedHosts: ["fw.lab.example"], fetchImpl: async (u, i) => { const r = await orig(u, i); if (new URL(u).searchParams.get("type") === "commit") g.running = new Map(); return r; } });
+  const http = createGuardedHttp({ allowedHosts: ["fw.lab.corp.test"], fetchImpl: async (u, i) => { const r = await orig(u, i); if (new URL(u).searchParams.get("type") === "commit") g.running = new Map(); return r; } });
   const adapter = createPaloAltoAdapter({ http, target: PAN_T, env: ENV, sleep: async () => {}, pollMs: 0, maxPolls: 2 });
-  const ops = createOperations({ targets: new Map([[PAN_T.id, PAN_T]]), adapters: { paloalto: adapter }, audit: createAudit({ file: join(mkdtempSync(join(tmpdir(), "x-")), "a") }), transportKind: "live" });
+  const ops = liveOps(PAN_T, adapter);
   const r2 = await run(ops, { targetId: "lab-fw-1", changeType: "address-object.create", params: ADDR });
   assert.equal(r2.done.operation.status, "uncertain");
   assert.equal(r2.done.operation.result.reason, "running_differs_after_commit");
