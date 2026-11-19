@@ -130,6 +130,7 @@ The gate refuses by default. It acts only on a tenant named `lab` that is on an 
 | `npm run topology -- --config=<file>` | Renders the topology as Mermaid; `--out=<file>` writes Markdown |
 | `npm run render:iac` | Renders the change set and Terraform into `rendered/`; refuses an unhealthy config |
 | `npm run rto` | Return-to-office Wi-Fi what-if: before and after, where it breaks first, and APs to add |
+| `npm run demo:check` | Pre-flight for a client working session: runs every step in `docs/WORKING_SESSION.md` and fails if one stops behaving as described |
 | `npm run roundtrip` | Applies then destroys the twin on a simulated tenant and proves it is unchanged |
 | `node tools/provision-cli.mjs <plan\|apply\|destroy\|approval-template>` | Guarded provisioning against the simulated tenant; see `docs/PROVISIONING.md` |
 | `npm test` | Runs the test suite: sequence, 42 health checks, the checklist, the renderers, and the provisioning gate |
