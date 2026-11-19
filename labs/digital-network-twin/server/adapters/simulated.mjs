@@ -5,6 +5,7 @@
 import { guardedWrite, listDiff, markFor, same, WriteError } from "./common.mjs";
 import { CHANGE_TYPES as MX, planRules } from "./meraki-plan.mjs";
 import { CHANGE_TYPES as PA, planObject } from "./paloalto-plan.mjs";
+import { CHANGE_TYPES as CF, compact as cfCompact, normalizeRule as cfNormalize, PHASES as CF_PHASES, planEdge } from "./cloudflare-plan.mjs";
 
 const clone = (v) => structuredClone(v);
 
@@ -24,13 +25,15 @@ export const SDWAN_CHANGE_TYPES = {
 
 export function createSimulatedAdapters() {
   // One store per simulated device, keyed by its scope, so two firewalls or two networks never share state.
-  const stores = { pan: new Map(), mx: new Map(), sdwan: new Map() };
+  const stores = { pan: new Map(), mx: new Map(), sdwan: new Map(), cf: new Map() };
   const store = (kind, key, init) => { if (!stores[kind].has(key)) stores[kind].set(key, init()); return stores[kind].get(key); };
   const panFor = (key = "default") => store("pan", key, () => ({ object: new Map(), pending: 0, running: new Map() }));
   const mxFor = (key = "default") => store("mx", key, () => ({ rules: [] }));
   const sdwanFor = (key = "default") => store("sdwan", key, () => ({ prefs: { voice: "wan1", video: "wan1" } }));
+  // A zone starts with one rule someone else wrote, so every run shows that other people's rules survive.
+  const cfFor = (key = "default") => store("cf", key, () => ({ phases: { http_request_firewall_custom: { rulesetId: "0123456789abcdef0123456789abcdef", version: 4, rules: [{ id: "f0000000000000000000000000000001", ref: "legacy-block-bots", description: "Existing rule: block known bad bot", action: "block", expression: '(ip.src.country eq "XX")', enabled: true, action_parameters: null }] } }, nextId: 1 }));
   const sim = {
-    panFor, mxFor, sdwanFor,
+    panFor, mxFor, sdwanFor, cfFor,
     get pan() { return panFor(); }, get mx() { return mxFor(); }, get sdwan() { return sdwanFor(); },
     // Failure injection for tests: "lost" applies the write but loses the reply; "dropped" loses the write and the reply.
     nextWrite: null,
@@ -41,6 +44,7 @@ export function createSimulatedAdapters() {
   };
   const panKey = (t) => t?.scope?.firewallSerial ?? "default";
   const mxKey = (t) => t?.scope?.networkId ?? "default";
+  const cfKey = (t) => t?.scope?.zoneId ?? "default";
   const verify = (key) => async () => { if (sim.mismatch.has(key)) throw new WriteError("device_does_not_match_inventory"); };
 
   const paloalto = {
@@ -116,6 +120,49 @@ export function createSimulatedAdapters() {
       return guardedWrite({ write, read, baseline: plan.baseline, proposed: plan.proposed });
     }
   };
+  const cloudflare = {
+    vendor: "cloudflare",
+    changeTypes: CF,
+    verifyScope: (target) => verify(cfKey(target))(),
+    async preflight(target) { return { simulated: true, checks: [{ name: "zone matches inventory (name and account)", pass: !sim.mismatch.has(cfKey(target)) }, ...Object.values(CF_PHASES).map((p) => ({ name: `${p} entry point reads with the expected shape`, pass: true }))], notExercised: ["rule add reply", "rule delete reply", "entry point creation reply"] }; },
+    phaseOf: (changeType, params) => (changeType === "edge-rule.remove" ? params.phase : CF_PHASES[changeType.split(".")[0]]),
+    async readState({ changeType, params, target }) {
+      const ph = this.phaseOf(changeType, params);
+      const z = cfFor(cfKey(target)).phases[ph];
+      return z ? { exists: true, rulesetId: z.rulesetId, version: z.version, rules: clone(z.rules) } : { exists: false, rulesetId: null, version: 0, rules: [] };
+    },
+    async plan({ changeType, params, opId, target }) {
+      const state = await this.readState({ changeType, params, target });
+      return { baseline: state, ...planEdge({ changeType, params, state, opId }) };
+    },
+    async execute(plan, { changeType, params, target }) {
+      const Z = cfFor(cfKey(target));
+      const phase = plan.phase;
+      const adding = changeType !== "edge-rule.remove";
+      const planned = sim.nextWrite; sim.nextWrite = null;
+      let first = true;
+      const write = async () => {
+        const mode = first ? planned : null; first = false;
+        if (mode === "refuse") throw new WriteError("write_refused", 400);
+        if (mode !== "dropped") {
+          sim.writes += 1;
+          if (adding) {
+            const rule = { id: `c${String(Z.nextId++).padStart(31, "0")}`, ...plan.proposed.rules.at(-1) };
+            if (!Z.phases[phase]) Z.phases[phase] = { rulesetId: `e${String(Z.nextId++).padStart(31, "0")}`, version: 0, rules: [] };
+            Z.phases[phase].rules.push(rule);
+            Z.phases[phase].version += 1;
+          } else {
+            const ph = Z.phases[phase];
+            ph.rules = ph.rules.filter((r) => r.ref !== `twin-${params.mark.toLowerCase()}`);
+            ph.version += 1;
+          }
+        }
+        if (mode === "lost" || mode === "dropped") throw new WriteError("transport_error");
+      };
+      const read = async () => { const z = Z.phases[phase]; return z ? { exists: true, rules: z.rules.map(cfNormalize) } : { exists: false, rules: [] }; };
+      return guardedWrite({ write, read, baseline: cfCompact(plan.baseline), proposed: plan.proposed });
+    }
+  };
   void markFor;
-  return { sim, adapters: { paloalto, meraki } };
+  return { sim, adapters: { paloalto, meraki, cloudflare } };
 }

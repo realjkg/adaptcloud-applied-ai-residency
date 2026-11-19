@@ -63,6 +63,7 @@ Two paths, one rule: enabling an adapter authorizes nothing, and every execution
 |---|---|
 | Palo Alto | Create one address object on a disposable firewall. Candidate edit and commit are separate; the approval shows the partial-commit scope; planning is refused with pending candidate changes; a queued commit job is not success; the running config is read back |
 | Meraki | Add one L3 firewall rule on a disposable MX network. The full list is round-tripped or refused; the approver confirms an exclusive change window because the endpoint has no conditional update; the list is read back |
+| Cloudflare edge | Add one WAF custom, redirect, or cache rule to a disposable zone. Structured conditions only; single-rule add and delete never rewrite other rules; zone name and account verified before staging; a synthetic traffic preview in the plan. See `docs/EDGE_CONFIG.md` |
 | Meraki SD-WAN | Simulator only. A live target that lists it is refused at load |
 
 Simulator mode covers every vendor and object, including SD-WAN. Live Palo Alto and Meraki need `targets` in settings (disposable lab targets with exact hosts and a credential variable name) and a `policy.liveAuthorization` that references ADR 0002.

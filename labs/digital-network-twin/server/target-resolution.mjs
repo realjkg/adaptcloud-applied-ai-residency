@@ -18,6 +18,8 @@ export class TargetError extends Error {
 export function normalizeTarget(alias, t, mode) {
   const scope = t.vendor === "paloalto"
     ? { managementHost: t.scope?.managementHost ?? t.host ?? null, deviceGroup: t.scope?.deviceGroup ?? t.deviceGroup ?? null, firewallSerial: t.scope?.firewallSerial ?? t.firewallSerial ?? null, vsys: t.scope?.vsys ?? t.vsys ?? null }
+    : t.vendor === "cloudflare"
+    ? { accountId: t.scope?.accountId ?? t.accountId ?? null, zoneId: t.scope?.zoneId ?? t.zoneId ?? null, zoneName: t.scope?.zoneName ?? t.zoneName ?? null }
     : { organizationId: t.scope?.organizationId ?? t.organizationId ?? null, networkId: t.scope?.networkId ?? t.networkId ?? null, applianceSerial: t.scope?.applianceSerial ?? t.applianceSerial ?? null };
   return { ...t, id: alias, mode: t.mode ?? mode, scope, capabilities: new Set(t.capabilities ?? t.changeTypes ?? []) };
 }
@@ -29,6 +31,8 @@ export function targetFingerprint(alias, capability, target) {
 }
 
 const placeholderHost = (host) => { const h = String(host ?? "").replace(/\.$/, "").toLowerCase(); return h === "example" || h.endsWith(".example") || h === "localhost"; };
+
+const placeholderZone = (name) => { const z = String(name ?? "").toLowerCase(); return z === "" || /(^|\.)(example|test|invalid|localhost)$/.test(z) || /(^|\.)example\.(com|net|org)$/.test(z); };
 
 /**
  * @param {object} options
@@ -50,6 +54,7 @@ export function createTargetResolver({ mode, targets, fixtures = new Map() }) {
       if (fixtureAliases.has(alias)) throw new TargetError("LIVE_INVENTORY_USES_RESERVED_FIXTURE_ALIAS");
       if (t.mode !== "live" || fixtureScopes.has(scopeKey(t))) throw new TargetError("FIXTURE_IN_LIVE_INVENTORY");
       if (t.vendor === "paloalto" && placeholderHost(t.scope.managementHost)) throw new TargetError("PLACEHOLDER_HOST_IN_LIVE_INVENTORY");
+      if (t.vendor === "cloudflare" && placeholderZone(t.scope.zoneName)) throw new TargetError("PLACEHOLDER_ZONE_IN_LIVE_INVENTORY");
       if (t.vendor === "meraki" && fixtureNetworks.has(t.scope.networkId)) throw new TargetError("FIXTURE_NETWORK_IN_LIVE_INVENTORY");
     }
   } else {

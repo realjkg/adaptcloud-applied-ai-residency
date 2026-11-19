@@ -551,7 +551,7 @@ test("readiness API: everyone signed in can read it, only admins can run checks,
     const read = await viewer.call("GET", "/api/readiness");
     assert.equal(read.status, 200);
     assert.equal(read.body.storage.status, "not_run");
-    assert.deepEqual(read.body.targets.map((x) => x.alias).sort(), ["mx-aus-branch", "pan-dfw-edge"]);
+    assert.deepEqual(read.body.targets.map((x) => x.alias).sort(), ["cf-edge-a", "mx-aus-branch", "pan-dfw-edge"]);
     assert.match(read.body.notice, /never authorizes a write/);
     assert.equal((await viewer.call("POST", "/api/readiness/storage-check", {})).status, 403);
     assert.equal((await op.call("POST", "/api/readiness/preflight", { targetId: "pan-dfw-edge" })).status, 403);

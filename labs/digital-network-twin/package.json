@@ -12,7 +12,7 @@
     "check": "node tools/twin-sequence.mjs check",
     "verify": "node tools/twin-sequence.mjs verify",
     "health": "node tools/health-agent.mjs",
-    "test": "node --test test/twin-sequence.test.mjs test/health.test.mjs test/render.test.mjs test/provision.test.mjs test/live.test.mjs test/rto-wifi.test.mjs test/demo.test.mjs test/asbuilt.test.mjs test/viewer.test.mjs test/collector.test.mjs test/control-plane.test.mjs test/operations.test.mjs test/live-writers.test.mjs test/learner-isolation.test.mjs test/target-resolution.test.mjs test/journal-volume-check.test.mjs test/readiness.test.mjs test/learner-e2e.test.mjs test/browser-gate.test.mjs",
+    "test": "node --test test/twin-sequence.test.mjs test/health.test.mjs test/render.test.mjs test/provision.test.mjs test/live.test.mjs test/rto-wifi.test.mjs test/demo.test.mjs test/asbuilt.test.mjs test/viewer.test.mjs test/collector.test.mjs test/control-plane.test.mjs test/operations.test.mjs test/live-writers.test.mjs test/learner-isolation.test.mjs test/target-resolution.test.mjs test/journal-volume-check.test.mjs test/readiness.test.mjs test/learner-e2e.test.mjs test/browser-gate.test.mjs test/cloudflare-edge.test.mjs",
     "topology": "node tools/render-topology.mjs",
     "render:iac": "node tools/render-iac.mjs --write",
     "roundtrip": "node tools/provision-cli.mjs roundtrip",

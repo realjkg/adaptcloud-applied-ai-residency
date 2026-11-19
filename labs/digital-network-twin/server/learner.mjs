@@ -13,8 +13,8 @@ import { createLearnerCore } from "./learner-core.mjs";
 
 // Each learner lab has its own members and its own simulated devices. A principal outside a lab sees nothing in it.
 export const LABS = {
-  "lab-a": { members: ["persona:viewer", "persona:operator", "persona:approver", "persona:admin"], aliases: ["pan-dfw-edge", "mx-aus-branch"] },
-  "lab-b": { members: ["persona:operator-b", "persona:approver-b"], aliases: ["pan-aus-edge", "mx-plano-branch"] }
+  "lab-a": { members: ["persona:viewer", "persona:operator", "persona:approver", "persona:admin"], aliases: ["pan-dfw-edge", "mx-aus-branch", "cf-edge-a"] },
+  "lab-b": { members: ["persona:operator-b", "persona:approver-b"], aliases: ["pan-aus-edge", "mx-plano-branch", "cf-edge-b"] }
 };
 
 export const PERSONAS = {

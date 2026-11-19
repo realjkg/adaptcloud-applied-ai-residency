@@ -69,7 +69,7 @@ test("learner personas can plan, approve, and execute simulated writes including
   const opA = { subject: "persona:operator", name: "A", roles: ["operator"], labId: "lab-a" };
   const apA = { subject: "persona:approver", name: "B", roles: ["approver"], labId: "lab-a" };
   const targets = svc.operations.targets(opA);
-  assert.deepEqual(targets.map((t) => t.id).sort(), ["mx-aus-branch", "pan-dfw-edge"], "a learner sees only the devices in their own lab");
+  assert.deepEqual(targets.map((t) => t.id).sort(), ["cf-edge-a", "mx-aus-branch", "pan-dfw-edge"], "a learner sees only the devices in their own lab");
   assert.ok(targets.every((t) => t.environment === "lab" && t.disposable && !("scope" in t)));
   assert.ok(targets.find((t) => t.id === "mx-aus-branch").changeTypes.some((c) => c.id === "sdwan.uplink-preference.set"));
   const r = await svc.operations.request(opA, { targetId: "mx-aus-branch", changeType: "sdwan.uplink-preference.set", params: { trafficClass: "voice", preferredUplink: "wan2" } });

@@ -47,7 +47,7 @@ export function createOperations({ resolver, policy = denyAllPolicy, adapters, a
   const view = (op) => ({
     id: op.id, targetId: op.targetId, vendor: op.vendor, changeType: op.changeType, params: op.params, status: op.status,
     requester: op.requester.name, requestedAt: op.requestedAt, expiresAt: op.expiresAt, planDigest: op.planDigest,
-    targetFingerprint: op.binding.fingerprint, contextId: op.contextId, diff: op.plan.diff, blockers: op.plan.blockers, commitScope: op.plan.commitScope, requiresExclusiveWindow: op.plan.requiresExclusiveWindow,
+    targetFingerprint: op.binding.fingerprint, contextId: op.contextId, preview: op.plan.preview ?? null, diff: op.plan.diff, blockers: op.plan.blockers, commitScope: op.plan.commitScope, requiresExclusiveWindow: op.plan.requiresExclusiveWindow,
     approver: op.approval?.approverName ?? null, exclusiveWindowConfirmed: op.approval?.exclusiveWindow === true,
     result: op.result ?? null, rollbackOf: op.rollbackOf ?? null, transport: transportKind,
     // Where a person has to look: a commit may have been accepted but is not recorded. Never a retry.

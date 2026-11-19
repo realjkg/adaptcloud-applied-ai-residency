@@ -11,6 +11,7 @@ import { collectSnapshot } from "../tools/collect/collector.mjs";
 import { createGuardedHttp } from "../tools/live/guarded-http.mjs";
 import { secretFromEnv } from "../tools/live/credentials.mjs";
 import { createLiveTransport } from "../tools/live/transport.mjs";
+import { createCloudflareEdgeAdapter } from "./adapters/cloudflare.mjs";
 import { createMerakiAdapter } from "./adapters/meraki.mjs";
 import { createPaloAltoAdapter } from "./adapters/paloalto.mjs";
 import { createApp } from "./app.mjs";
@@ -54,7 +55,7 @@ export async function createLiveService({ settings, env = process.env, fetchImpl
   const adapterFor = (t) => {
     if (!adapterCache.has(t.id)) {
       const http = createGuardedHttp({ allowedHosts: [t.host], fetchImpl });
-      adapterCache.set(t.id, t.vendor === "paloalto" ? createPaloAltoAdapter({ http, target: t, env }) : createMerakiAdapter({ http, target: t, env }));
+      adapterCache.set(t.id, t.vendor === "paloalto" ? createPaloAltoAdapter({ http, target: t, env }) : t.vendor === "cloudflare" ? createCloudflareEdgeAdapter({ http, target: t, env }) : createMerakiAdapter({ http, target: t, env }));
     }
     return adapterCache.get(t.id);
   };

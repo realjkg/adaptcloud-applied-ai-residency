@@ -6,7 +6,8 @@
 
 export const LIVE_CHANGE_TYPES = {
   paloalto: ["address-object.create", "address-object.delete"],
-  meraki: ["l3-firewall-rule.add", "l3-firewall-rule.remove"]
+  meraki: ["l3-firewall-rule.add", "l3-firewall-rule.remove"],
+  cloudflare: ["waf-custom-rule.add", "redirect-rule.add", "cache-rule.add", "edge-rule.remove"]
 };
 const ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const HOST = /^[A-Za-z0-9.-]{1,253}$/;
@@ -20,7 +21,7 @@ export function loadTargets(list, { live }) {
     const at = `targets[${i}]`;
     if (typeof t?.id !== "string" || !ID.test(t.id)) { problems.push(`${at}.id is not valid`); continue; }
     if (byId.has(t.id)) problems.push(`${at}.id is a duplicate`);
-    if (!["paloalto", "meraki"].includes(t.vendor)) problems.push(`${at}.vendor must be paloalto or meraki`);
+    if (!["paloalto", "meraki", "cloudflare"].includes(t.vendor)) problems.push(`${at}.vendor must be paloalto, meraki, or cloudflare`);
     if (typeof t.label !== "string" || t.label.length === 0 || t.label.length > 80) problems.push(`${at}.label is required`);
     if (!Array.isArray(t.changeTypes) || t.changeTypes.length === 0) problems.push(`${at}.changeTypes must list the change types this target permits`);
     if (live) {
@@ -35,6 +36,11 @@ export function loadTargets(list, { live }) {
         if (!/^[A-Za-z0-9-]{6,32}$/.test(String(t.firewallSerial ?? ""))) problems.push(`${at}.firewallSerial is required`);
         for (const k of ["vsys", "deviceName"]) if (typeof t[k] !== "string" || !/^[A-Za-z0-9._-]{1,63}$/.test(t[k])) problems.push(`${at}.${k} is required`);
         if (typeof t.commitAdmin !== "string" || !/^[A-Za-z0-9_.@-]{1,128}$/.test(t.commitAdmin)) problems.push(`${at}.commitAdmin is required`);
+      }
+      if (t.vendor === "cloudflare") {
+        if (t.host !== "api.cloudflare.com") problems.push(`${at}.host must be api.cloudflare.com`);
+        for (const k of ["zoneId", "accountId"]) if (!/^[0-9a-f]{32}$/.test(String(t[k] ?? ""))) problems.push(`${at}.${k} must be 32 hex characters`);
+        if (!/^[A-Za-z0-9.-]{3,253}$/.test(String(t.zoneName ?? ""))) problems.push(`${at}.zoneName is required`);
       }
       if (t.vendor === "meraki") {
         if (!/^[A-Za-z0-9_-]{1,64}$/.test(String(t.networkId ?? ""))) problems.push(`${at}.networkId is required`);
