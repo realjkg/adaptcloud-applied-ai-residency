@@ -53,6 +53,41 @@ In Claude Code, the `twin-health-agent` subagent (`.claude/agents/twin-health-ag
 
 Read the vendor pages for each stage in `docs/REFERENCES.md` before configuring it.
 
+## Render the topology
+
+The twin draws itself from the config. Run it at any point in the build:
+
+```bash
+npm run topology -- --config=my-config.json     # Mermaid text
+npm run topology -- --out=docs/TOPOLOGY.md      # Markdown with a legend
+```
+
+Only sections that exist in the config are drawn, so the diagram grows stage by stage. Each allow rule becomes a labeled arrow between zones, with any NAT on it. An allow rule into the app zone from anywhere except the DMZ is drawn in red, because the F5 is meant to be the only path to the pool. The finished reference is in `docs/TOPOLOGY.md`.
+
+**Exercise.** Before you render, sketch the diagram you expect for your config. Then render it and reconcile every difference. Next, add a `branch-to-pool` allow rule (from `vpn-branch` to `app`, source `10.40.0.0/24`, destination `10.30.0.0/24`, `tcp/8080`) above `default-deny`, and render again. Find the red arrow, then say which health check catches the same mistake and at which stage.
+
+## Render the plan (plan-only)
+
+```bash
+npm run render:iac        # writes rendered/
+```
+
+| Output | Contents |
+|---|---|
+| `rendered/changeset.json` | 35 ordered, create-only operations for all four vendors, in stage order, with rule positions |
+| `rendered/terraform/cloudflare` | Terraform for the DNS record, SSL mode, and managed WAF, plus a mock-provider plan test |
+| `rendered/terraform/f5` | Terraform for the monitor, pool, certificate, client SSL profile, and virtual server, plus a mock-provider plan test |
+
+The renderer refuses to run unless every stage passes its health checks, so no infrastructure code is produced from a model that already has a finding. Credentials come from the environment, the certificate and key are sensitive variables with no default, and the pre-shared key stays a `secret-store://` reference.
+
+**What is checked, and what is not.**
+
+- Checked here: the HCL parses and is canonically formatted (`terraform fmt`), the output is deterministic and matches the committed files, nothing from the config can become an HCL interpolation, and no secret appears in any output.
+- Not checked here: resource and attribute names against the real provider schemas, and the mock-provider plan tests have not been run. Both need the provider registry. In an environment that can reach it, run `terraform init` and `terraform validate`, then `terraform test`, in each Terraform directory. Fix any attribute that the pinned provider version rejects, and treat that fix as part of the exercise.
+- Not rendered: Palo Alto and Meraki Terraform. Their provider schemas differ between major versions, so those two vendors appear in the change set only. Authenticated Origin Pulls and the F5 minimum TLS version are noted in comments for the same reason.
+
+Never run `terraform apply` from this lab. Applying to real infrastructure needs its own approval, credentials, and a tested teardown.
+
 ## Commands
 
 | Command | What it does |
@@ -63,7 +98,9 @@ Read the vendor pages for each stage in `docs/REFERENCES.md` before configuring 
 | `npm run verify` | Applies the full plan and confirms the twin reaches `validation.passed` |
 | `node tools/twin-sequence.mjs show <id>` | Prints one stage's full lesson |
 | `npm run health -- --config=<file> --until=<id>` | Builds the twin to that stage and checks the config at each stage; add `--json` for a report |
-| `npm test` | Runs the test suite: sequence, all 42 health checks, and the checklist |
+| `npm run topology -- --config=<file>` | Renders the topology as Mermaid; `--out=<file>` writes Markdown |
+| `npm run render:iac` | Renders the change set and Terraform into `rendered/`; refuses an unhealthy config |
+| `npm test` | Runs the test suite: sequence, all 42 health checks, the checklist, and the renderers |
 
 ## Learning path
 
@@ -107,8 +144,10 @@ For a review or a portfolio, collect:
 1. The output of `npm run plan` and `npm run verify`.
 2. The refusal output from at least three out-of-order `run` commands, with a sentence on each explaining the missing dependency.
 3. The health agent's report for your own config through stage 12, plus one run where you introduced a fault and the agent halted.
-4. A one-page design note that answers the checkpoints in your own words.
-5. A residual-risk list drawn from the "What this twin cannot prove" section of the architecture document.
+4. The rendered topology of your config, with your pre-render sketch and the differences you reconciled.
+5. Your `rendered/changeset.json`, plus the result of `terraform validate` and `terraform test` if you ran them.
+6. A one-page design note that answers the checkpoints in your own words.
+7. A residual-risk list drawn from the "What this twin cannot prove" section of the architecture document.
 
 ## Boundaries
 

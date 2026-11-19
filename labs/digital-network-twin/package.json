@@ -12,6 +12,8 @@
     "check": "node tools/twin-sequence.mjs check",
     "verify": "node tools/twin-sequence.mjs verify",
     "health": "node tools/health-agent.mjs",
-    "test": "node --test test/twin-sequence.test.mjs test/health.test.mjs"
+    "test": "node --test test/twin-sequence.test.mjs test/health.test.mjs test/render.test.mjs",
+    "topology": "node tools/render-topology.mjs",
+    "render:iac": "node tools/render-iac.mjs --write"
   }
 }
