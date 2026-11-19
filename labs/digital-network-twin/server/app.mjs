@@ -121,7 +121,7 @@ export function createApp({ mode, origin, secureCookies = false, sessions, oidc 
           result = evaluateSdwan({ policy, observations, previous });
         } catch (error) {
           if (![
-            "invalid_uplinks", "invalid_failback_policy", "invalid_previous_path",
+            "invalid_policy", "invalid_uplinks", "invalid_failback_policy", "invalid_previous_path",
             "invalid_threshold", "invalid_observation"
           ].includes(error?.message)) throw error;
           return json(422, { error: error.message });

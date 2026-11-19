@@ -123,3 +123,16 @@ test('SD-WAN UI config, failover, failback, validation, reset, logout and relogi
   await login('bob'); assert.equal(await field('preferred').inputValue(), 'wan1');
   await run('wan1', 'preferred_healthy');
 });
+
+test('SD-WAN HTTP: a non-object policy keeps its 422 and its error name, whatever the model calls it internally', async t => {
+  const { post } = await fixture(t);
+  for (const bad of [null, [], 'wan1', 7, true]) {
+    const b = input(); b.policy = bad;
+    const r = await post(b);
+    assert.equal(r.status, 422, JSON.stringify(bad));
+    assert.deepEqual(r.body, { error: 'invalid_sdwan_input' }, JSON.stringify(bad));
+  }
+  const missing = input(); delete missing.policy;
+  const r = await post(missing);
+  assert.equal(r.status, 422); assert.deepEqual(r.body, { error: 'invalid_sdwan_input' });
+});
