@@ -27,9 +27,6 @@ import { createSnapshotStore } from "./store.mjs";
 import { loadTargets } from "./targets.mjs";
 import { SIMULATOR_TARGETS } from "./simulator-targets.mjs";
 import { createLivePolicy, createTargetResolver } from "./target-resolution.mjs";
-import { createSimulatorService, main as learnerMain, PERSONAS } from "./learner.mjs";
-
-export { createSimulatorService, PERSONAS };
 
 /**
  * Live service. Everything comes from a settings file; nothing is defaulted toward live.
@@ -48,7 +45,7 @@ export async function createLiveService({ settings, env = process.env, fetchImpl
   const killSwitch = { get: () => kill || env.TWIN_PROVISION_KILL === "1", set: (v) => { kill = v; } };
   const oidc = createOidc({ config: { ...settings.oidc, redirectUri: `${settings.origin}/auth/callback`, clientSecret: settings.oidc.clientSecretEnv ? secretFromEnv(env, settings.oidc.clientSecretEnv) : undefined }, fetchImpl });
   const transport = createLiveTransport({ policy: settings.policy, env, fetchImpl });
-  const changes = createChangeService({ transport, policy: settings.policy, tenantId: settings.tenantId, owner: config.twinId, baseline: () => config, audit, now, killSwitch: killSwitch.get });
+  const changes = createChangeService({ transport, access: { member: ({ contextId }) => contextId === "live" }, policy: settings.policy, tenantId: settings.tenantId, owner: config.twinId, baseline: () => config, audit, now, killSwitch: killSwitch.get });
   // Palo Alto and Meraki writes. Each target gets its own adapter whose HTTP client may reach only that target's host.
   // Having an adapter authorizes nothing: every operation is approved and re-checked at execution.
   const loaded = loadTargets(settings.targets ?? [], { live: true });
@@ -76,8 +73,8 @@ export async function createLiveService({ settings, env = process.env, fetchImpl
       n += 1;
       const result = await collectSnapshot({ settings: settings.collector, env, fetchImpl, now: now(), snapshotId: `COLLECT-${now().toISOString().replace(/\D/g, "").slice(0, 14)}-${n}` });
       if (!result.ok) { await audit.record({ event: "collect.refused", actor: "scheduler", reason: result.refusal }); return result; }
-      await store.save(result.snapshot, { savedAt: now().toISOString(), savedBy: "collector" });
-      if (settings.retention) await store.applyRetention({ now: now(), ...settings.retention });
+      await store.save(result.snapshot, { savedAt: now().toISOString(), savedBy: "collector", scope: "live" });
+      if (settings.retention) await store.applyRetention({ now: now(), ...settings.retention, scope: "live" });
       await audit.record({ event: "collect.saved", actor: "scheduler", snapshot: result.snapshot.snapshotId });
       return { ok: true };
     }
@@ -92,7 +89,7 @@ export async function createLiveService({ settings, env = process.env, fetchImpl
 
 export async function main(argv) {
   const liveFile = argv.find((a) => a.startsWith("--live="))?.slice(7);
-  if (!liveFile) return learnerMain(argv);
+  if (!liveFile) { console.error("usage: main.mjs --live=<settings file>  (the learner service is server/learner-deployed.mjs; the local persona test entry is server/learner.mjs)"); return 2; }
   const port = Number(argv.find((a) => a.startsWith("--port="))?.slice(7) ?? 3500);
   const svc = await createLiveService({ settings: JSON.parse(await readFile(liveFile, "utf8")) });
   await new Promise((resolve) => svc.app.listen(port, "127.0.0.1", resolve));

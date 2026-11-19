@@ -20,6 +20,7 @@ function graph(entry) {
   return [...seen].map((f) => relative(root, f));
 }
 
+const DEPLOYED_FORBIDDEN = [/tools\/live\//, /tools\/collect\//, /adapters\/(paloalto|meraki)\.mjs$/, /server\/main\.mjs$/, /server\/live-authorization\.mjs$/, /server\/learner\.mjs$/];
 const FORBIDDEN_MODULES = [/tools\/live\//, /tools\/collect\//, /adapters\/(paloalto|meraki)\.mjs$/, /server\/oidc\.mjs$/, /server\/main\.mjs$/, /server\/live-authorization\.mjs$/];
 
 test("the learner entry reaches no live adapter, collector, identity client, or live-authorization module", () => {
@@ -35,6 +36,24 @@ test("nothing the learner entry reaches reads credentials or process environment
     assert.ok(!/\bfetch\s*\(|globalThis\.fetch|node:https\b|node:net\b|node:tls/.test(src.replace(/createServer/g, "")), `${f} makes outbound calls`);
     assert.ok(!/secretFromEnv|X-PAN-KEY|x-pan-key|Bearer /.test(src), `${f} handles vendor credentials`);
   }
+});
+
+test("the deployed learner entry cannot reach persona sign-in, live adapters, collectors, credentials, or the local test entry", () => {
+  const files = graph(join(root, "server", "learner-deployed.mjs"));
+  assert.ok(files.includes("server/oidc.mjs") && files.includes("server/enrollment.mjs"), "it signs people in with OIDC and resolves enrollment");
+  for (const f of files) {
+    for (const re of DEPLOYED_FORBIDDEN) assert.ok(!re.test(f), `${f} must not be reachable from the deployed learner entry`);
+    const src = readFileSync(join(root, f), "utf8").replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
+    assert.ok(!/\bPERSONAS\b/.test(src), `${f} defines the persona table`);
+    assert.ok(!/process\.env/.test(src), `${f} reads process.env`);
+    assert.ok(!/secretFromEnv|X-PAN-KEY|x-pan-key/.test(src), `${f} handles vendor credentials`);
+  }
+});
+
+test("the local persona test entry is a separate file that nothing deployed imports", () => {
+  for (const entry of ["learner-deployed.mjs", "main.mjs"]) assert.ok(!graph(join(root, "server", entry)).includes("server/learner.mjs"), `${entry} must not import the persona entry`);
+  const learner = readFileSync(join(root, "server", "learner.mjs"), "utf8");
+  assert.match(learner, /LOCAL TEST ENTRY/);
 });
 
 test("the live entry is the only place that wires live adapters", () => {

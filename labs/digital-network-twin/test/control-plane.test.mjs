@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { browserTest, playwright } from "./browser.mjs";
 import assert from "node:assert/strict";
 import { generateKeyPairSync, createSign } from "node:crypto";
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
@@ -10,7 +11,7 @@ import { createSessions } from "../server/sessions.mjs";
 import { createSnapshotStore } from "../server/store.mjs";
 import { createAudit } from "../server/audit.mjs";
 import { createScheduler } from "../server/scheduler.mjs";
-import { createSimulatorService } from "../server/main.mjs";
+import { createSimulatorService } from "../server/learner.mjs";
 import { createApp } from "../server/app.mjs";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "twin-cp-"));
@@ -96,28 +97,29 @@ test("OIDC state is single-use and unknown state is refused", async () => {
 });
 
 // ---- store
-test("the store is content-addressed, immutable, verified on read, and honors holds and retention", async () => {
+test("the store is content-addressed, immutable, scoped, verified on read, and honors holds and retention", async () => {
   const dir = tmp();
   const store = createSnapshotStore({ dir });
-  const a = await store.save(snap("OLD-1", "2026-01-01T00:00:00Z"), { savedAt: "t", savedBy: "x" });
-  const again = await store.save(snap("OLD-1", "2026-01-01T00:00:00Z"), { savedAt: "t2", savedBy: "y" });
+  const meta = (scope) => ({ savedAt: "t", savedBy: "x", scope });
+  const a = await store.save(snap("OLD-1", "2026-01-01T00:00:00Z"), meta("lab-a"));
+  const again = await store.save(snap("OLD-1", "2026-01-01T00:00:00Z"), meta("lab-a"));
   assert.equal(again.digest, a.digest);
-  assert.equal((await store.list()).length, 1);
-  await assert.rejects(store.save({ nope: true }, {}), /invalid snapshot/);
-  await store.save(snap("OLD-2", "2026-01-02T00:00:00Z"), { savedAt: "t", savedBy: "x" });
-  const mid = await store.save(snap("MID-3", "2026-06-01T00:00:00Z"), { savedAt: "t", savedBy: "x" });
-  await store.save(snap("NEW-4", "2026-11-18T00:00:00Z"), { savedAt: "t", savedBy: "x" });
-  await store.setHold(a.digest, true);
-  const removed = await store.applyRetention({ now: new Date("2026-11-19T00:00:00Z"), keepDays: 100, keepMin: 1 });
+  assert.equal((await store.list({ scope: "lab-a" })).length, 1);
+  await assert.rejects(store.save({ nope: true }, meta("lab-a")), /invalid snapshot/);
+  await assert.rejects(store.save(snap("X", "2026-01-01T00:00:00Z"), { savedAt: "t", savedBy: "x" }), /scope_required/);
+  await store.save(snap("OLD-2", "2026-01-02T00:00:00Z"), meta("lab-a"));
+  await store.save(snap("MID-3", "2026-06-01T00:00:00Z"), meta("lab-a"));
+  await store.save(snap("NEW-4", "2026-11-18T00:00:00Z"), meta("lab-a"));
+  await store.setHold(a.digest, true, { scope: "lab-a" });
+  const removed = await store.applyRetention({ now: new Date("2026-11-19T00:00:00Z"), keepDays: 100, keepMin: 1, scope: "lab-a" });
   assert.deepEqual(removed.sort(), ["MID-3", "OLD-2"]);
-  assert.deepEqual((await store.list()).map((r) => r.snapshotId), ["OLD-1", "NEW-4"]);
-  assert.equal((await store.read(a.digest)).snapshot.snapshotId, "OLD-1");
-  await assert.rejects(store.read("../x"), /not a digest/);
+  assert.deepEqual((await store.list({ scope: "lab-a" })).map((r) => r.snapshotId), ["OLD-1", "NEW-4"]);
+  assert.equal((await store.read(a.digest, { scope: "lab-a" })).snapshot.snapshotId, "OLD-1");
+  await assert.rejects(store.read("../x", { scope: "lab-a" }), /not_found/);
   assert.equal((await store.verifyAll()).length, 0);
   writeFileSync(join(dir, "objects", `${a.digest}.json`), "tampered");
-  await assert.rejects(store.read(a.digest), /does not match/);
+  await assert.rejects(store.read(a.digest, { scope: "lab-a" }), /does not match/);
   assert.deepEqual(await store.verifyAll(), ["OLD-1"]);
-  assert.ok(mid.digest);
   rmSync(dir, { recursive: true });
 });
 
@@ -310,11 +312,8 @@ test("an oversized or malformed body is refused", async () => {
 });
 
 // ---- browser: two people, one change
-import { createRequire } from "node:module";
-let playwright = null;
-try { playwright = createRequire(import.meta.url)("playwright"); } catch { /* skipped without it */ }
 
-test("in a browser: an operator requests, a different person approves, the operator applies, and a viewer sees no controls", { skip: playwright ? false : "playwright not installed" }, async () => {
+browserTest("in a browser: an operator requests, a different person approves, the operator applies, and a viewer sees no controls", async () => {
   const t = await service();
   const browser = await playwright.chromium.launch();
   try {
@@ -384,11 +383,11 @@ test("live service: a scheduled collection saves a snapshot and audits it, and a
   const dir = tmp();
   const svc = await createLiveService({ settings: liveSettings(dir), env: { CLOUDFLARE_API_TOKEN: "SYNTH-CF" }, fetchImpl: cfFetch });
   assert.equal((await svc.scheduler.runNow()).ok, true);
-  assert.equal((await svc.store.list()).length, 1);
-  assert.equal((await svc.store.list())[0].sourceKind, "live-collector");
+  assert.equal((await svc.store.list({ scope: "live" })).length, 1);
+  assert.equal((await svc.store.list({ scope: "live" }))[0].sourceKind, "live-collector");
   svc.killSwitch.set(true);
   assert.equal((await svc.scheduler.runNow()).ok, false);
-  assert.equal((await svc.store.list()).length, 1);
+  assert.equal((await svc.store.list({ scope: "live" })).length, 1);
   const off = await createLiveService({ settings: liveSettings(tmp(), { collector: { enabled: false, vendors: {} } }), fetchImpl: cfFetch });
   assert.equal((await off.scheduler.runNow()).reason, "collector_disabled");
   assert.ok((await off.audit.read()).some((e) => e.event === "collect.refused"));
@@ -396,7 +395,7 @@ test("live service: a scheduled collection saves a snapshot and audits it, and a
 
 test("live service: the gate refuses a write without the recorded authorization", async () => {
   const svc = await createLiveService({ settings: liveSettings(tmp()), env: {}, fetchImpl: cfFetch });
-  const r = await svc.changes.request({ subject: "u", name: "U", roles: ["operator"] }, { action: "apply", selectors: ["cloudflare/dns-record"] });
+  const r = await svc.changes.request({ subject: "u", name: "U", roles: ["operator"], labId: "live" }, { action: "apply", selectors: ["cloudflare/dns-record"] });
   assert.equal(r.ok, false);
   assert.match(r.code, /live|authorization|environment|transport/);
 });
@@ -450,7 +449,7 @@ test("config changes (Cloudflare, F5): approval is bound to the baseline, an exp
   const dir = tmp();
   let now = Date.parse("2026-11-19T10:00:00Z");
   const svc = await createSimulatorService({ dir, origin: "http://x", now: () => new Date(now) });
-  const OPR = { subject: "u1", name: "Op", roles: ["operator"] }; const APR = { subject: "u2", name: "Ap", roles: ["approver"] };
+  const OPR = { subject: "persona:operator", name: "Op", roles: ["operator"], labId: "lab-a" }; const APR = { subject: "persona:approver", name: "Ap", roles: ["approver"], labId: "lab-a" };
   const r = await svc.changes.request(OPR, { action: "apply", selectors: ["f5/pool"] });
   assert.equal((await svc.changes.decide(APR, r.change.id, "approve", "0".repeat(64))).code, "plan_digest_mismatch");
   now += 31 * 60_000;
@@ -459,7 +458,7 @@ test("config changes (Cloudflare, F5): approval is bound to the baseline, an exp
   const r2 = await svc.changes.request(OPR, { action: "apply", selectors: ["f5/pool"] });
   await svc.changes.decide(APR, r2.change.id, "approve", r2.change.planDigest);
   // The target changes after approval: a same-named object the twin does not own appears.
-  svc.transport.seedUnmanaged({ vendor: "f5", object: "pool", name: "app-pool" }, { note: "someone else" });
+  svc.transportFor("lab-a").seedUnmanaged({ vendor: "f5", object: "pool", name: "app-pool" }, { note: "someone else" });
   const stale = await svc.changes.execute(OPR, r2.change.id);
   assert.equal(stale.code, "drift_detected_new_plan_required");
 
@@ -468,7 +467,7 @@ test("config changes (Cloudflare, F5): approval is bound to the baseline, an exp
   const [a, b] = await Promise.all([svc.changes.execute(OPR, r3.change.id), svc.changes.execute(OPR, r3.change.id)]);
   assert.ok(a.ok || b.ok);
   assert.equal((await svc.changes.execute(OPR, r3.change.id)).existing, true);
-  assert.equal([...svc.transport.state.keys()].filter((k) => k.startsWith("f5/monitor/")).length, 1);
+  assert.equal([...svc.transportFor("lab-a").state.keys()].filter((k) => k.startsWith("f5/monitor/")).length, 1);
 });
 
 // ---- live wiring of target writes, with a fake vendor
@@ -506,7 +505,7 @@ test("live service: target writes are refused without the per-execution recorded
   await assert.rejects(createLiveService({ settings: liveSettings(tmp(), { targets: [{ ...target, environment: "production" }] }), env: {}, fetchImpl }), /disposable lab target/);
 });
 
-test("in a browser: a simulated SD-WAN change is planned, approved with an exclusive-window confirmation, and executed", { skip: playwright ? false : "playwright not installed" }, async () => {
+browserTest("in a browser: a simulated SD-WAN change is planned, approved with an exclusive-window confirmation, and executed", async () => {
   const t = await service();
   const browser = await playwright.chromium.launch();
   try {
@@ -569,7 +568,7 @@ test("readiness API: everyone signed in can read it, only admins can run checks,
   } finally { t.close(); }
 });
 
-test("in a browser: the Live readiness panel shows three separate verdicts, and only an admin sees the buttons", { skip: playwright ? false : "playwright not installed" }, async () => {
+browserTest("in a browser: the Live readiness panel shows three separate verdicts, and only an admin sees the buttons", async () => {
   const t = await service();
   const browser = await playwright.chromium.launch();
   try {

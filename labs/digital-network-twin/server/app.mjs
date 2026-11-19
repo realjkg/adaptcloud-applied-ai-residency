@@ -23,9 +23,19 @@ const MAX_BODY = 256 * 1024;
 const HEX = /^[0-9a-f]{64}$/;
 const CHG = /^CHG-[0-9A-F]{10}$/;
 
-export function createApp({ mode, origin, secureCookies = false, sessions, oidc = null, personas = {}, groupRoles = {}, store, scheduler, changes, operations = null, readiness = null, audit, collectNow, killSwitch }) {
-  if (mode !== "simulator" && mode !== "live") throw new Error("mode must be simulator or live");
-  if (mode === "live" && !oidc) throw new Error("live mode requires OpenID Connect sign-in");
+/**
+ * Modes: "simulator" is the local test entry (persona sign-in); "learner" is the deployed learner service (OpenID Connect and
+ * enrollment, simulated vendors only, no persona route at all); "live" is the private control plane.
+ *
+ * The lab a session belongs to is resolved on the server at sign-in (persona table, enrollment, or "live") and stored in the
+ * session. Nothing in a request body or header can set it. A session with no lab can reach no lab data.
+ */
+export function createApp({ mode, origin, secureCookies = false, sessions, oidc = null, enrollment = null, personas = {}, groupRoles = {}, store, scheduler, schedulerFor = null, changes, operations = null, readiness = null, audit, auditFilter = null, collectNow, killSwitch }) {
+  if (!["simulator", "learner", "live"].includes(mode)) throw new Error("mode must be simulator, learner, or live");
+  if ((mode === "live" || mode === "learner") && !oidc) throw new Error(`${mode} mode requires OpenID Connect sign-in`);
+  if (mode === "learner" && typeof enrollment?.resolve !== "function") throw new Error("learner mode requires enrollment");
+  if (mode !== "simulator" && Object.keys(personas).length > 0) throw new Error("persona sign-in exists only in simulator mode");
+  const labScoped = mode !== "live";
 
   return createServer(async (req, res) => {
     const send = (status, body, type = "text/plain; charset=utf-8", extra = {}) => {
@@ -54,7 +64,10 @@ export function createApp({ mode, origin, secureCookies = false, sessions, oidc 
             const who = await oidc.complete({ state: url.searchParams.get("state"), code: url.searchParams.get("code") });
             const roles = rolesFromGroups(who.groups, groupRoles);
             if (roles.length === 0) { await audit.record({ event: "login.denied", actor: who.subject, reason: "no_role" }); return send(403, "no role is assigned to this account"); }
-            const s = sessions.create({ subject: who.subject, name: who.name, roles, labId: "live" });
+            // The lab comes from enrollment on the server. An account the identity provider knows but nobody enrolled gets nothing.
+            const labId = mode === "learner" ? enrollment.resolve(who.subject) : "live";
+            if (labId === null) { await audit.record({ event: "login.denied", actor: who.subject, reason: "not_enrolled" }); return send(403, "this account is not enrolled in a lab"); }
+            const s = sessions.create({ subject: who.subject, name: who.name, roles, labId });
             await audit.record({ event: "login", actor: who.subject, roles: roles.join(",") });
             return send(302, "", "text/plain", { Location: "/", "Set-Cookie": cookie(s.id, 28800) });
           } catch (error) {
@@ -63,7 +76,7 @@ export function createApp({ mode, origin, secureCookies = false, sessions, oidc 
           }
         }
         if (req.method === "POST" && parts[1] === "persona") {
-          if (mode !== "simulator") return json(403, { error: "personas_disabled" });
+          if (mode !== "simulator") return json(404, { error: "not_found" });
           const body = await readJson(req, origin);
           const persona = typeof body.persona === "string" && Object.hasOwn(personas, body.persona) ? personas[body.persona] : null;
           if (!persona) return json(401, { error: "unknown_persona" });
@@ -81,7 +94,7 @@ export function createApp({ mode, origin, secureCookies = false, sessions, oidc 
       if (parts[0] !== "api") return send(404, "not found");
       if (req.method === "GET" && parts[1] === "mode") return json(200, { mode, signIn: oidc ? "sso" : "persona", personas: mode === "simulator" ? Object.entries(personas).map(([id, p]) => ({ id, name: p.name, roles: p.roles })) : [] });
       if (!session) return json(401, { error: "sign_in_required" });
-      const user = { subject: session.user.subject, name: session.user.name, roles: session.user.roles, labId: session.user.labId ?? "live" };
+      const user = { subject: session.user.subject, name: session.user.name, roles: session.user.roles, labId: typeof session.user.labId === "string" ? session.user.labId : null };
       const writes = !["GET", "HEAD"].includes(req.method);
       if (writes && !sessions.csrfOk(session, req.headers["x-csrf-token"])) return json(403, { error: "csrf" });
       const need = async (permission) => { if (can(user.roles, permission)) return true; await audit.record({ event: "denied", actor: user.subject, permission }); json(403, { error: "forbidden" }); return false; };
@@ -91,46 +104,55 @@ export function createApp({ mode, origin, secureCookies = false, sessions, oidc 
 
       if (parts[1] === "snapshots") {
         if (!(await need("snapshot:read"))) return;
-        if (req.method === "GET" && parts.length === 2) return json(200, { snapshots: await store.list() });
+        // Access is checked before metadata or content leaves the store: a hash proves integrity, not permission.
+        if (user.labId === null) return json(req.method === "GET" && parts.length === 2 ? 200 : 404, req.method === "GET" && parts.length === 2 ? { snapshots: [] } : { error: "not_found" });
+        if (req.method === "GET" && parts.length === 2) return json(200, { snapshots: await store.list({ scope: user.labId }) });
         if (req.method === "GET" && parts.length === 3 && HEX.test(parts[2])) {
-          try { return send(200, (await store.read(parts[2])).text, "application/json; charset=utf-8"); } catch { return json(404, { error: "not_found_or_damaged" }); }
+          try { return send(200, (await store.read(parts[2], { scope: user.labId })).text, "application/json; charset=utf-8"); } catch { return json(404, { error: "not_found" }); }
         }
         if (req.method === "POST" && parts[3] === "hold" && HEX.test(parts[2])) {
           if (!(await need("snapshot:hold"))) return;
-          await store.setHold(parts[2], body.hold === true);
+          try { await store.setHold(parts[2], body.hold === true, { scope: user.labId ?? "" }); } catch { return json(404, { error: "not_found" }); }
           await audit.record({ event: "snapshot.hold", actor: user.subject, digest: parts[2], hold: body.hold === true });
           return json(200, { ok: true });
         }
       }
       if (parts[1] === "collect" && req.method === "POST") {
         if (!(await need("collect:run"))) return;
+        const sched = schedulerFor ? schedulerFor(user) : scheduler;
+        if (!sched) return json(404, { error: "not_found" });
         await audit.record({ event: "collect.requested", actor: user.subject });
-        return json(200, await scheduler.runNow());
+        return json(200, await sched.runNow());
       }
       if (parts[1] === "schedule") {
-        if (req.method === "GET") return json(200, scheduler.status());
+        const sched = schedulerFor ? schedulerFor(user) : scheduler;
+        if (!sched) return json(404, { error: "not_found" });
+        if (req.method === "GET") return json(200, sched.status());
         if (req.method === "POST") {
           if (!(await need("schedule:manage"))) return;
-          if (body.action === "pause") scheduler.pause("admin"); else if (body.action === "resume") scheduler.resume(); else return json(400, { error: "action_invalid" });
+          if (body.action === "pause") sched.pause("admin"); else if (body.action === "resume") sched.resume(); else return json(400, { error: "action_invalid" });
           await audit.record({ event: `schedule.${body.action}`, actor: user.subject });
-          return json(200, scheduler.status());
+          return json(200, sched.status());
         }
       }
       if (parts[1] === "killswitch" && req.method === "POST") {
         if (!(await need("killswitch:set"))) return;
+        // The switch is deployment-wide. A lab administrator must not be able to stop every other lab; platform operators use deployment controls.
+        if (mode === "learner") return json(403, { error: "not_available_in_learner_labs" });
         killSwitch.set(body.on === true);
         await audit.record({ event: "killswitch", actor: user.subject, on: body.on === true });
         return json(200, { killSwitch: killSwitch.get() });
       }
-      if (parts[1] === "controls" && req.method === "GET") { if (!(await need("change:read"))) return; return json(200, { controls: changes.controls() }); }
+      if (parts[1] === "controls" && req.method === "GET") { if (!(await need("change:read"))) return; return json(200, { controls: changes.controls(user) }); }
       if (parts[1] === "changes") {
-        if (req.method === "GET" && parts.length === 2) { if (!(await need("change:read"))) return; return json(200, { changes: changes.list() }); }
+        if (req.method === "GET" && parts.length === 2) { if (!(await need("change:read"))) return; return json(200, { changes: changes.list(user) }); }
+        if (req.method === "GET" && CHG.test(parts[2] ?? "") && parts.length === 3) { if (!(await need("change:read"))) return; const c = changes.get(user, parts[2]); return c ? json(200, { change: c }) : json(404, { ok: false, code: "not_found" }); }
         if (req.method === "POST" && parts.length === 2) {
           const r = await changes.request(user, { action: body.action, selectors: body.selectors, config: body.config });
           return json(r.ok ? 201 : r.code === "forbidden" ? 403 : 422, r);
         }
-        if (req.method === "POST" && CHG.test(parts[2] ?? "") && parts[3] === "decision") { const r = await changes.decide(user, parts[2], body.decision, body.planDigest); return json(r.ok ? 200 : r.code === "forbidden" || r.code === "self_approval" ? 403 : 409, r); }
-        if (req.method === "POST" && CHG.test(parts[2] ?? "") && parts[3] === "execute") { const r = await changes.execute(user, parts[2]); return json(r.ok ? 200 : r.code === "forbidden" ? 403 : 409, r); }
+        if (req.method === "POST" && CHG.test(parts[2] ?? "") && parts[3] === "decision") { const r = await changes.decide(user, parts[2], body.decision, body.planDigest); return json(r.ok ? 200 : r.code === "not_found" ? 404 : r.code === "forbidden" || r.code === "self_approval" ? 403 : 409, r); }
+        if (req.method === "POST" && CHG.test(parts[2] ?? "") && parts[3] === "execute") { const r = await changes.execute(user, parts[2]); return json(r.ok ? 200 : r.code === "not_found" ? 404 : r.code === "forbidden" ? 403 : 409, r); }
       }
       if (parts[1] === "targets" && req.method === "GET") { if (!(await need("operation:read"))) return; return json(200, { targets: operations ? operations.targets(user) : [] }); }
       if (parts[1] === "operations" && operations) {
@@ -150,7 +172,13 @@ export function createApp({ mode, origin, secureCookies = false, sessions, oidc 
       }
       if (parts[1] === "audit" && req.method === "GET") {
         if (!(await need("audit:read"))) return;
-        return json(200, { verify: await audit.verify(), entries: await audit.read(100) });
+        // In a lab-scoped deployment an administrator sees only events by people enrolled in the same lab, and nothing about the rest of the chain.
+        const verify = await audit.verify();
+        if (labScoped) {
+          const mine = auditFilter ? auditFilter(user) : null;
+          return json(200, { verify: { ok: verify.ok }, entries: mine ? (await audit.read(500)).filter(mine).slice(-100) : [] });
+        }
+        return json(200, { verify, entries: await audit.read(100) });
       }
       return json(404, { error: "not_found" });
     } catch (error) {

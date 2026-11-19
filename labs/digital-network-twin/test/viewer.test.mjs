@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { browserTest, playwright } from "./browser.mjs";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -130,10 +131,8 @@ test("viewer sources avoid markup sinks, network calls to other hosts, and inlin
   assert.match(html, /script-src 'self'/);
 });
 
-let playwright = null;
-try { playwright = createRequire(import.meta.url)("playwright"); } catch { /* browser tests are skipped without it */ }
 
-test("in a browser: draws, verifies, diffs, captures SVG and PNG, and rejects a hostile file", { skip: playwright ? false : "playwright not installed" }, async () => {
+browserTest("in a browser: draws, verifies, diffs, captures SVG and PNG, and rejects a hostile file", async () => {
   const server = createViewerServer();
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   const browser = await playwright.chromium.launch();

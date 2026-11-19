@@ -100,13 +100,20 @@ export const denyAllPolicy = { allows: () => false };
 
 /** Learner labs: a lab has members and the aliases it may use. A principal outside the lab gets nothing. */
 export function createLabPolicy(labs) {
-  return { allows: ({ principalId, contextId, alias, target }) => {
+  return {
+    /** Is this principal enrolled in this lab? Used for records that are not tied to one device. */
+    member: ({ principalId, contextId }) => typeof contextId === "string" && Object.hasOwn(labs, contextId) && labs[contextId].members.includes(principalId),
+    allows: ({ principalId, contextId, alias, target }) => {
     const lab = Object.hasOwn(labs, contextId) ? labs[contextId] : null;
     return lab !== null && target.mode === "simulator" && lab.members.includes(principalId) && lab.aliases.includes(alias);
-  } };
+    }
+  };
 }
 
 /** Live targets: only principals the deployment lists for that alias, and only in the live context. */
 export function createLivePolicy(access) {
-  return { allows: ({ principalId, contextId, alias, target }) => contextId === "live" && target.mode === "live" && Array.isArray(access[alias]) && access[alias].includes(principalId) };
+  return {
+    member: ({ contextId }) => contextId === "live",
+    allows: ({ principalId, contextId, alias, target }) => contextId === "live" && target.mode === "live" && Array.isArray(access[alias]) && access[alias].includes(principalId)
+  };
 }

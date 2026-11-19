@@ -18,15 +18,22 @@ import { can } from "./roles.mjs";
 const MAX_CONFIG_BYTES = 200_000;
 const deny = (code) => ({ ok: false, code });
 
-export function createChangeService({ transport, policy, tenantId, owner, baseline, audit, now = () => new Date(), killSwitch = () => false, planTtlMs = 30 * 60_000 }) {
+export function createChangeService({ transport: sharedTransport, transportFor = null, access = null, policy, tenantId, owner, baseline, audit, now = () => new Date(), killSwitch = () => false, planTtlMs = 30 * 60_000 }) {
   const changes = new Map();
   const id = () => `CHG-${randomBytes(5).toString("hex").toUpperCase()}`;
   const target = { environment: policy.environment, tenantId, owner };
-  const view = (c) => ({ id: c.id, planDigest: c.planDigest, expiresAt: c.expiresAt, action: c.action, selectors: c.selectors, requester: c.requester.name, requestedAt: c.requestedAt, status: c.status, digest: c.digest, summary: c.summary, entries: c.entries, approver: c.approver?.name ?? null, result: c.result ?? null, transport: transport.kind });
+  // The lab (or "live") comes from the authenticated session on the server, never from the request. Each lab gets its own
+  // simulated tenant, so one lab's apply is never another lab's baseline. A principal outside the lab sees nothing in it.
+  const transportOf = (ctx) => (transportFor ? transportFor(ctx) : sharedTransport);
+  const member = (user) => typeof user?.labId === "string" && access?.member?.({ principalId: user.subject, contextId: user.labId }) === true;
+  const visible = (user, c) => member(user) && c.contextId === user.labId;
+  const view = (c) => ({ id: c.id, planDigest: c.planDigest, expiresAt: c.expiresAt, action: c.action, selectors: c.selectors, requester: c.requester.name, requestedAt: c.requestedAt, status: c.status, digest: c.digest, summary: c.summary, entries: c.entries, approver: c.approver?.name ?? null, result: c.result ?? null, transport: transportOf(c.contextId).kind });
 
   return {
     /** The controls a request may target: every vendor and object kind in the change set, and whether the transport can perform it. */
-    controls() {
+    controls(user) {
+      if (!member(user)) return [];
+      const transport = transportOf(user.labId);
       const set = buildChangeSet(baseline());
       const seen = new Map();
       for (const op of set) {
@@ -37,7 +44,9 @@ export function createChangeService({ transport, policy, tenantId, owner, baseli
     },
 
     async request(user, { action, selectors, config }) {
+      if (!member(user)) return deny("forbidden");
       if (!can(user.roles, "change:request")) return deny("forbidden");
+      const transport = transportOf(user.labId);
       if (killSwitch()) return deny("kill_switch");
       if (!["apply", "destroy"].includes(action)) return deny("action_invalid");
       if (!Array.isArray(selectors) || selectors.length === 0 || selectors.length > 40) return deny("selectors_invalid");
@@ -52,7 +61,7 @@ export function createChangeService({ transport, policy, tenantId, owner, baseli
       try { changeset = selectChangeSet(prepared.changeset, selectors); } catch { return deny("selectors_invalid"); }
       const planned = await plan({ changeset, transport, policy, target, killSwitch: killSwitch() });
       if (!planned.ok) return { ok: false, code: planned.refusal, detail: planned.detail };
-      const c = { id: id(), action, selectors: [...selectors].sort(), requester: { subject: user.subject, name: user.name }, requestedAt: now().toISOString(), status: "pending_approval", changeset, digest: planned.digest, summary: planned.summary, entries: planned.entries };
+      const c = { id: id(), action, selectors: [...selectors].sort(), requester: { subject: user.subject, name: user.name }, requestedAt: now().toISOString(), contextId: user.labId, status: "pending_approval", changeset, digest: planned.digest, summary: planned.summary, entries: planned.entries };
       // The approval binds the change set and the state it was planned against. A different state needs a new plan.
       c.baselineDigest = hashOf(planned.entries);
       c.planDigest = hashOf({ digest: c.digest, baseline: c.baselineDigest, action, scope: c.selectors });
@@ -63,9 +72,10 @@ export function createChangeService({ transport, policy, tenantId, owner, baseli
     },
 
     async decide(user, changeId, decision, planDigest) {
-      if (!can(user.roles, "change:approve")) return deny("forbidden");
+      // A change from another lab answers exactly like an unknown id, and nothing else happens.
       const c = changes.get(changeId);
-      if (!c) return deny("not_found");
+      if (!c || !visible(user, c)) return deny("not_found");
+      if (!can(user.roles, "change:approve")) return deny("forbidden");
       if (c.status !== "pending_approval") return deny("not_pending");
       if (c.requester.subject === user.subject) return deny("self_approval");
       if (decision !== "approve" && decision !== "reject") return deny("decision_invalid");
@@ -84,9 +94,10 @@ export function createChangeService({ transport, policy, tenantId, owner, baseli
     },
 
     async execute(user, changeId) {
-      if (!can(user.roles, "change:apply")) return deny("forbidden");
       const c = changes.get(changeId);
-      if (!c) return deny("not_found");
+      if (!c || !visible(user, c)) return deny("not_found");
+      if (!can(user.roles, "change:apply")) return deny("forbidden");
+      const transport = transportOf(c.contextId);
       // A repeat, or a concurrent call, returns what already happened and never writes again.
       if (["completed", "failed", "executing", "stale", "expired"].includes(c.status)) return { ok: c.status === "completed", code: c.status === "completed" ? undefined : `already_${c.status}`, change: view(c), existing: true };
       if (c.status !== "approved") return deny("not_approved");
@@ -108,8 +119,8 @@ export function createChangeService({ transport, policy, tenantId, owner, baseli
       return { ok: result.ok, change: view(c) };
     },
 
-    get: (changeId) => (changes.has(changeId) ? view(changes.get(changeId)) : null),
-    list: () => [...changes.values()].map(view).sort((a, b) => b.requestedAt.localeCompare(a.requestedAt)),
+    get: (user, changeId) => (changes.has(changeId) && visible(user, changes.get(changeId)) ? view(changes.get(changeId)) : null),
+    list: (user) => (member(user) ? [...changes.values()].filter((c) => visible(user, c)).map(view).sort((a, b) => b.requestedAt.localeCompare(a.requestedAt)) : []),
     digestOf
   };
 }

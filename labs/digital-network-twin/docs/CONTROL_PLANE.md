@@ -29,7 +29,7 @@ without the settings below. Palo Alto and Meraki now have live write adapters th
 | Config change workflow (request, approve, execute) | `server/changes.mjs` | Simulator for all four vendors; live for Cloudflare DNS and F5 |
 | Target change workflow with per-execution authorization | `server/operations.mjs`, `server/targets.mjs` | Simulator and live |
 | Palo Alto and Meraki write adapters | `server/adapters/` | Fakes only |
-| Learner entry with no live path | `server/learner.mjs` | Simulator only |
+| Learner entry with no live path | `server/learner-deployed.mjs` (local persona test entry: `server/learner.mjs`) | Simulator only |
 | HTTP API and browser panels | `server/app.mjs`, `viewer/operate.js` | n/a |
 
 ## Roles
@@ -80,9 +80,31 @@ Two server-side registries: synthetic targets (`server/simulator-targets.mjs`, r
   - **No intent is not a clean candidate.** "No commit was submitted" means the journaled path never reached the commit. The candidate edit happens earlier, so an operation that stopped there may still have a staged change. The result carries `candidateMayExist`, reconcile answers `candidate_edit_may_be_staged`, and the page says to inspect or clear the candidate on the firewall.
 - Live SD-WAN is never implied by a firewall capability: a live target that lists it is refused at load.
 
+## Learner isolation
+
+The deployed learner service is `server/learner-deployed.mjs`. It is not the local test entry.
+
+- **Sign-in.** OpenID Connect and enrollment are required. After sign-in the server resolves the lab from enrollment (`settings.labs[lab].members`). An identity in no lab, or in more than one, gets no session. The lab is stored in the server-side session. No request field can set it. The deployed app runs in `learner` mode, where the persona route does not exist. Startup fails, with no listener, unless the settings carry an https origin, OIDC, group-to-role mapping, enrolled labs, and a data directory, and carry no personas or client secret (the learner OIDC client is a public PKCE client). Persona sign-in lives only in `server/learner.mjs` (`npm run control:learner:local`), which nothing deployed imports; `test/learner-isolation.test.mjs` checks the import graph.
+- **Every lab-scoped record carries its lab and is checked on every path.** Config changes and operations: list, detail, approve, execute, rollback, reconcile. A record from another lab answers exactly like an unknown id (same status, same body) and triggers no vendor call. Snapshots: the store is scoped, so listing and retrieval both name a scope; a content hash proves integrity, not permission, and identical bytes saved by two labs have two index rows. Schedules, audit events, and the simulated tenant are per lab. A lab administrator sees only events by people enrolled in the same lab and cannot flip the deployment-wide kill switch.
+- **Legacy records.** A snapshot with no scope appears in no view. `store.unscoped()` lists them and `store.assignScope(digest, lab)` is the trusted migration step; it is not reachable from the API.
+- **No server-side export exists.** The SVG, PNG, draw.io, and JSON captures are built in the browser from snapshots that caller could already load.
+- **CI.** `.github/workflows/learner-isolation.yml` runs the lab tests with `CI=true` and `TWIN_REQUIRE_BROWSER=1`, so a missing Playwright fails the run. This workflow has not been run on GitHub.
+
+Example deployed settings (no secrets):
+
+```json
+{
+  "origin": "https://learn.example.org",
+  "dataDir": "/data",
+  "oidc": { "issuer": "https://idp.example.org", "authorizationEndpoint": "https://idp.example.org/authorize", "tokenEndpoint": "https://idp.example.org/token", "jwksUri": "https://idp.example.org/keys", "clientId": "learner-app", "groupsClaim": "groups" },
+  "groupRoles": { "learners": "operator", "reviewers": "approver", "lab-admins": "admin" },
+  "labs": { "lab-a": { "members": ["<oidc subject>"], "aliases": ["pan-dfw-edge", "mx-aus-branch"] } }
+}
+```
+
 ## Learner deployments
 
-`server/learner.mjs` is the entry for learner-facing tasks (for example Fargate). It has no vendor credentials, no live adapter, no collector, and no identity client in its import graph, and nothing it reaches reads the process environment or makes outbound calls; `test/learner-isolation.test.mjs` fails if that changes. Learners still plan, approve, and execute simulated writes, including SD-WAN, through the same workflow. Run it with `--all-interfaces` only behind the platform's network controls, and give the task no credentials and no route to a management network or the live executor. Those deployment controls (task role, security groups, subnets) are outside this repository and are not changed by it.
+`server/learner-deployed.mjs` is the entry for learner-facing tasks (for example Fargate). It has no vendor credentials, no live adapter, no collector, and no identity client in its import graph, and nothing it reaches reads the process environment or makes outbound calls; `test/learner-isolation.test.mjs` fails if that changes. Learners still plan, approve, and execute simulated writes, including SD-WAN, through the same workflow. Run it with `--all-interfaces` only behind the platform's network controls, and give the task no credentials and no route to a management network or the live executor. Those deployment controls (task role, security groups, subnets) are outside this repository and are not changed by it.
 
 ## Live settings
 

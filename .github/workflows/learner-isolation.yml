@@ -1,0 +1,35 @@
+name: Learner isolation (digital network twin lab)
+
+on:
+  pull_request:
+    paths:
+      - "labs/digital-network-twin/**"
+      - ".github/workflows/learner-isolation.yml"
+  push:
+    branches: [main]
+    paths:
+      - "labs/digital-network-twin/**"
+
+permissions:
+  contents: read
+
+jobs:
+  lab-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: labs/digital-network-twin
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: hashicorp/setup-terraform@v3
+      # The two-account browser test is acceptance evidence. With CI=true, a missing browser FAILS the run instead of skipping.
+      - run: npm install --no-save --no-package-lock playwright@1.63.0
+      - run: npx playwright install --with-deps chromium
+      - name: Lab tests, including the two-learner browser isolation run
+        run: npm test
+        env:
+          CI: "true"
+          TWIN_REQUIRE_BROWSER: "1"

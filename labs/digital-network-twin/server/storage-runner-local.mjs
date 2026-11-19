@@ -22,3 +22,6 @@ export function createLocalStorageRunner({ dir = null } = {}) {
     }
   };
 }
+
+/** The learner deployments use the local simulation. It is labeled as such everywhere it is shown. */
+export const createStorageRunnerForLearners = () => createLocalStorageRunner();
