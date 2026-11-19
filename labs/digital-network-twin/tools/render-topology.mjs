@@ -25,12 +25,13 @@ export function buildGraph(config) {
     groups.push(entry);
     return entry;
   };
-  const node = (entry, id, label) => {
-    nodes.push({ id, label });
+  // `meta` carries where a node or edge came from (vendor and config path), for the browser viewer. Mermaid ignores it.
+  const node = (entry, id, label, meta = {}) => {
+    nodes.push({ id, label, ...meta });
     entry.nodeIds.push(id);
     return id;
   };
-  const edge = (from, to, label, kind = "solid", danger = false) => edges.push({ from, to, label, kind, danger });
+  const edge = (from, to, label, kind = "solid", danger = false, meta = {}) => edges.push({ from, to, label, kind, danger, ...meta });
 
   const pa = config.paloalto;
   const zones = Array.isArray(pa?.zones) ? pa.zones : [];
@@ -45,9 +46,9 @@ export function buildGraph(config) {
   let cfId;
   if (cf?.dns) {
     const edgeGroup = group("internet", "Internet and edge");
-    userId = node(edgeGroup, "user", lines("Users", "HTTPS 443"));
+    userId = node(edgeGroup, "user", lines("Users", "HTTPS 443"), { vendor: "internet", path: "cloudflare.dns" });
     const waf = cf.waf?.managedRuleset ? `WAF ${safe(cf.waf.action)}` : undefined;
-    cfId = node(edgeGroup, "cf", lines("Cloudflare edge", safe(cf.dns.name), cf.dns.proxied ? "proxied" : "not proxied", cf.ssl?.mode ? `SSL ${safe(cf.ssl.mode)}` : undefined, waf));
+    cfId = node(edgeGroup, "cf", lines("Cloudflare edge", safe(cf.dns.name), cf.dns.proxied ? "proxied" : "not proxied", cf.ssl?.mode ? `SSL ${safe(cf.ssl.mode)}` : undefined, waf), { vendor: "cloudflare", path: "cloudflare" });
     edge(userId, cfId, "HTTPS 443");
   }
 
@@ -57,7 +58,7 @@ export function buildGraph(config) {
     const ngfw = group("ngfw", ngfwTitle);
     for (const zone of zones) {
       const members = interfaces.filter((item) => item.zone === zone).map((item) => `${safe(item.name, 16)} ${safe(item.address, 20)}`);
-      node(ngfw, zoneId(zone), lines(`zone ${safe(zone, 20)}`, ...members));
+      node(ngfw, zoneId(zone), lines(`zone ${safe(zone, 20)}`, ...members), { vendor: "paloalto", path: "paloalto.zones" });
     }
   }
   const hasZone = (zone) => zones.includes(zone);
@@ -72,14 +73,14 @@ export function buildGraph(config) {
     let poolId;
     if (f5.virtualServer) {
       const tls = f5.clientSsl?.minVersion ? safe(f5.clientSsl.minVersion) : undefined;
-      vipId = node(dc, "vip", lines("F5 virtual server", safe(f5.virtualServer.destination), tls, f5.virtualServer.snat ? `SNAT ${safe(f5.virtualServer.snat)}` : undefined));
+      vipId = node(dc, "vip", lines("F5 virtual server", safe(f5.virtualServer.destination), tls, f5.virtualServer.snat ? `SNAT ${safe(f5.virtualServer.snat)}` : undefined), { vendor: "f5", path: "f5.virtualServer" });
       if (hasZone("dmz")) edge(zoneId("dmz"), vipId, "dmz", "line");
     }
     if (f5.pool) {
-      poolId = node(dc, "pool", lines(`Pool ${safe(f5.pool.name)}`, f5.pool.monitor?.type ? `${safe(f5.pool.monitor.type)} monitor` : "no monitor"));
+      poolId = node(dc, "pool", lines(`Pool ${safe(f5.pool.name)}`, f5.pool.monitor?.type ? `${safe(f5.pool.monitor.type)} monitor` : "no monitor"), { vendor: "f5", path: "f5.pool" });
       if (vipId) edge(vipId, poolId, "default pool");
-      for (const member of Array.isArray(f5.pool.members) ? f5.pool.members : []) {
-        const id = node(dc, nodeId("m", member.address), lines("Member", `${safe(member.address, 20)}:${safe(member.port, 6)}`));
+      for (const [index, member] of (Array.isArray(f5.pool.members) ? f5.pool.members : []).entries()) {
+        const id = node(dc, nodeId("m", member.address), lines("Member", `${safe(member.address, 20)}:${safe(member.port, 6)}`), { vendor: "f5", path: `f5.pool.members[${index}]` });
         edge(poolId, id, "");
         if (hasZone("app")) edge(zoneId("app"), id, "app", "line");
       }
@@ -89,7 +90,7 @@ export function buildGraph(config) {
   // Management
   if (config.management && config.addressing?.panorama) {
     const mgmt = group("mgmt", "Management");
-    const panorama = node(mgmt, "panorama", lines("Panorama", safe(config.addressing.panorama, 20)));
+    const panorama = node(mgmt, "panorama", lines("Panorama", safe(config.addressing.panorama, 20)), { vendor: "paloalto", path: "addressing.panorama" });
     if (hasZone("management")) {
       const services = Array.isArray(config.management.protocols) ? config.management.protocols.map((item) => safe(item, 8)).join(" ") : "";
       edge(panorama, zoneId("management"), `manages ${services}`.trim(), "dotted");
@@ -100,18 +101,18 @@ export function buildGraph(config) {
   const peer = config.meraki?.nonMerakiPeer;
   if (peer) {
     const branch = group("branch", "Branch");
-    const lan = node(branch, "lan", lines("Branch clients", safe(peer.localNetworks?.[0], 20)));
-    const mx = node(branch, "mx", lines("Meraki MX", `WAN ${safe(config.addressing?.branchWan, 20)}`));
+    const lan = node(branch, "lan", lines("Branch clients", safe(peer.localNetworks?.[0], 20)), { vendor: "meraki", path: "meraki.nonMerakiPeer.localNetworks" });
+    const mx = node(branch, "mx", lines("Meraki MX", `WAN ${safe(config.addressing?.branchWan, 20)}`), { vendor: "meraki", path: "meraki.nonMerakiPeer" });
     edge(lan, mx, "");
     if (hasZone("vpn-branch")) edge(mx, zoneId("vpn-branch"), `IPsec IKEv${safe(peer.ikeVersion, 2)} to ${safe(peer.publicIp, 20)}`, "thick");
   }
 
   // Policy: every allow rule between known zones becomes a labeled edge. A path into app from outside dmz is flagged.
-  for (const rule of rules) {
+  for (const [index, rule] of rules.entries()) {
     if (rule.action !== "allow" || !hasZone(rule.from) || !hasZone(rule.to)) continue;
     const natEntry = nat.find((entry) => typeof entry.original === "string" && entry.original.startsWith(`${rule.destination}:`));
     const label = lines(safe(rule.name, 24), safe(rule.service, 12), natEntry ? `NAT to ${safe(natEntry.translated, 22)}` : undefined);
-    edge(zoneId(rule.from), zoneId(rule.to), label, "solid", rule.to === "app" && rule.from !== "dmz");
+    edge(zoneId(rule.from), zoneId(rule.to), label, "solid", rule.to === "app" && rule.from !== "dmz", { vendor: "paloalto", path: `paloalto.rules[${index}]`, rule: safe(rule.name, 24) });
   }
 
   if (nodes.length === 0) {

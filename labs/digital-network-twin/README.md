@@ -104,6 +104,14 @@ npm run asbuilt
 
 Checks a customer's as-built requirements, written in their own ids, against the twin and says exactly what can and cannot be claimed. Each requirement gets one verdict: met, not met, cannot say, attested, or needs attestation. A field the model does not carry is unknown and never a pass, a failure outranks an unknown, and a person's attestation can never override a machine check. Each vendor's config is mapped into shared facts, so one requirement is checked across Palo Alto, F5, Meraki, and Cloudflare, and a vendor is added by adding a mapping, not by rewriting requirements. See `docs/ASBUILT_REQUIREMENTS.md` and the committed `docs/ASBUILT_REPORT.md`. The example is synthetic. Real requirements go in `*.client.json` files, which git ignores.
 
+### Browser viewer
+
+```bash
+npm run snapshot && npm run viewer
+```
+
+Draws the topology in a browser and captures a point-in-time view as SVG, PNG, or JSON. It reads snapshots and calls no vendor, holds no credentials, and has no control that changes anything. A collector for vendor admin and account APIs is not built. See `docs/VISUALIZER.md`.
+
 ## Provision and deprovision (guarded)
 
 The control surface for applying and destroying the twin, tested against a simulated lab tenant. See `docs/PROVISIONING.md`.
@@ -138,6 +146,7 @@ The gate refuses by default. It acts only on a tenant named `lab` that is on an 
 | `npm run topology -- --config=<file>` | Renders the topology as Mermaid; `--out=<file>` writes Markdown |
 | `npm run render:iac` | Renders the change set and Terraform into `rendered/`; refuses an unhealthy config |
 | `npm run rto` | Return-to-office Wi-Fi what-if: before and after, where it breaks first, and APs to add |
+| `npm run snapshot` / `npm run viewer` | Build the sample snapshots; serve the browser topology viewer on 127.0.0.1 |
 | `npm run asbuilt` | Claim exactly against customer as-built requirements across vendors: five verdicts, evidence for each, bound to digests |
 | `npm run demo:check` | Pre-flight for a client working session: runs every step in `docs/WORKING_SESSION.md` and fails if one stops behaving as described |
 | `npm run roundtrip` | Applies then destroys the twin on a simulated tenant and proves it is unchanged |

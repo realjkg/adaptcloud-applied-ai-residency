@@ -1,0 +1,349 @@
+{
+  "schemaVersion": 1,
+  "snapshotId": "SYNTH-SNAP-003",
+  "capturedAt": "2026-11-17T09:00:00Z",
+  "label": "Reference build",
+  "synthetic": true,
+  "source": {
+    "kind": "synthetic-config",
+    "twinId": "SYNTH-TWIN-NET-001",
+    "access": [],
+    "plannedAccess": [
+      {
+        "vendor": "cloudflare",
+        "level": "account API token with read permissions on the zone",
+        "mode": "read-only"
+      },
+      {
+        "vendor": "f5",
+        "level": "BIG-IP user with a read-only role",
+        "mode": "read-only"
+      },
+      {
+        "vendor": "meraki",
+        "level": "organization read-only administrator, as a dedicated lab-only account",
+        "mode": "read-only"
+      },
+      {
+        "vendor": "paloalto",
+        "level": "firewall or Panorama administrator with a read-only role",
+        "mode": "read-only"
+      }
+    ]
+  },
+  "configDigest": "ebf4d2aee0611f80c70847dd536bc32aa507818c271861643faf56d2f8723df8",
+  "topologyDigest": "f514210a63389d7166cc51bca9cb1c0a7c05edb22686663a93ab5be39ef76a6f",
+  "topology": {
+    "groups": [
+      {
+        "id": "internet",
+        "title": "Internet and edge",
+        "nodeIds": [
+          "user",
+          "cf"
+        ]
+      },
+      {
+        "id": "ngfw",
+        "title": "Palo Alto NGFW (default deny last)",
+        "nodeIds": [
+          "z_untrust",
+          "z_dmz",
+          "z_app",
+          "z_management",
+          "z_vpn_branch"
+        ]
+      },
+      {
+        "id": "dc",
+        "title": "Data center",
+        "nodeIds": [
+          "vip",
+          "pool",
+          "m_10_30_0_11",
+          "m_10_30_0_12"
+        ]
+      },
+      {
+        "id": "mgmt",
+        "title": "Management",
+        "nodeIds": [
+          "panorama"
+        ]
+      },
+      {
+        "id": "branch",
+        "title": "Branch",
+        "nodeIds": [
+          "lan",
+          "mx"
+        ]
+      }
+    ],
+    "nodes": [
+      {
+        "id": "user",
+        "lines": [
+          "Users",
+          "HTTPS 443"
+        ],
+        "vendor": "internet",
+        "path": "cloudflare.dns"
+      },
+      {
+        "id": "cf",
+        "lines": [
+          "Cloudflare edge",
+          "app.lab.example",
+          "proxied",
+          "SSL strict",
+          "WAF block"
+        ],
+        "vendor": "cloudflare",
+        "path": "cloudflare"
+      },
+      {
+        "id": "z_untrust",
+        "lines": [
+          "zone untrust",
+          "ethernet1/1 198.51.100.2/24"
+        ],
+        "vendor": "paloalto",
+        "path": "paloalto.zones"
+      },
+      {
+        "id": "z_dmz",
+        "lines": [
+          "zone dmz",
+          "ethernet1/2 10.20.0.2/24"
+        ],
+        "vendor": "paloalto",
+        "path": "paloalto.zones"
+      },
+      {
+        "id": "z_app",
+        "lines": [
+          "zone app",
+          "ethernet1/3 10.30.0.1/24"
+        ],
+        "vendor": "paloalto",
+        "path": "paloalto.zones"
+      },
+      {
+        "id": "z_management",
+        "lines": [
+          "zone management",
+          "ethernet1/4 10.99.0.1/24"
+        ],
+        "vendor": "paloalto",
+        "path": "paloalto.zones"
+      },
+      {
+        "id": "z_vpn_branch",
+        "lines": [
+          "zone vpn-branch",
+          "tunnel.1 10.50.0.1/30"
+        ],
+        "vendor": "paloalto",
+        "path": "paloalto.zones"
+      },
+      {
+        "id": "vip",
+        "lines": [
+          "F5 virtual server",
+          "10.20.0.100:443",
+          "TLSv1.2",
+          "SNAT automap"
+        ],
+        "vendor": "f5",
+        "path": "f5.virtualServer"
+      },
+      {
+        "id": "pool",
+        "lines": [
+          "Pool app-pool",
+          "http monitor"
+        ],
+        "vendor": "f5",
+        "path": "f5.pool"
+      },
+      {
+        "id": "m_10_30_0_11",
+        "lines": [
+          "Member",
+          "10.30.0.11:8080"
+        ],
+        "vendor": "f5",
+        "path": "f5.pool.members[0]"
+      },
+      {
+        "id": "m_10_30_0_12",
+        "lines": [
+          "Member",
+          "10.30.0.12:8080"
+        ],
+        "vendor": "f5",
+        "path": "f5.pool.members[1]"
+      },
+      {
+        "id": "panorama",
+        "lines": [
+          "Panorama",
+          "10.99.0.5"
+        ],
+        "vendor": "paloalto",
+        "path": "addressing.panorama"
+      },
+      {
+        "id": "lan",
+        "lines": [
+          "Branch clients",
+          "10.40.0.0/24"
+        ],
+        "vendor": "meraki",
+        "path": "meraki.nonMerakiPeer.localNetworks"
+      },
+      {
+        "id": "mx",
+        "lines": [
+          "Meraki MX",
+          "WAN 198.51.100.40"
+        ],
+        "vendor": "meraki",
+        "path": "meraki.nonMerakiPeer"
+      }
+    ],
+    "edges": [
+      {
+        "from": "user",
+        "to": "cf",
+        "lines": [
+          "HTTPS 443"
+        ],
+        "kind": "solid",
+        "danger": false
+      },
+      {
+        "from": "cf",
+        "to": "z_untrust",
+        "lines": [
+          "origin 198.51.100.2"
+        ],
+        "kind": "solid",
+        "danger": false
+      },
+      {
+        "from": "z_dmz",
+        "to": "vip",
+        "lines": [
+          "dmz"
+        ],
+        "kind": "line",
+        "danger": false
+      },
+      {
+        "from": "vip",
+        "to": "pool",
+        "lines": [
+          "default pool"
+        ],
+        "kind": "solid",
+        "danger": false
+      },
+      {
+        "from": "pool",
+        "to": "m_10_30_0_11",
+        "lines": [],
+        "kind": "solid",
+        "danger": false
+      },
+      {
+        "from": "z_app",
+        "to": "m_10_30_0_11",
+        "lines": [
+          "app"
+        ],
+        "kind": "line",
+        "danger": false
+      },
+      {
+        "from": "pool",
+        "to": "m_10_30_0_12",
+        "lines": [],
+        "kind": "solid",
+        "danger": false
+      },
+      {
+        "from": "z_app",
+        "to": "m_10_30_0_12",
+        "lines": [
+          "app"
+        ],
+        "kind": "line",
+        "danger": false
+      },
+      {
+        "from": "panorama",
+        "to": "z_management",
+        "lines": [
+          "manages https ssh"
+        ],
+        "kind": "dotted",
+        "danger": false
+      },
+      {
+        "from": "lan",
+        "to": "mx",
+        "lines": [],
+        "kind": "solid",
+        "danger": false
+      },
+      {
+        "from": "mx",
+        "to": "z_vpn_branch",
+        "lines": [
+          "IPsec IKEv2 to 198.51.100.2"
+        ],
+        "kind": "thick",
+        "danger": false
+      },
+      {
+        "from": "z_untrust",
+        "to": "z_dmz",
+        "lines": [
+          "edge-https",
+          "tcp/443",
+          "NAT to 10.20.0.100:443"
+        ],
+        "kind": "solid",
+        "danger": false,
+        "rule": "edge-https",
+        "path": "paloalto.rules[0]"
+      },
+      {
+        "from": "z_vpn_branch",
+        "to": "z_dmz",
+        "lines": [
+          "branch-https",
+          "tcp/443"
+        ],
+        "kind": "solid",
+        "danger": false,
+        "rule": "branch-https",
+        "path": "paloalto.rules[1]"
+      },
+      {
+        "from": "z_dmz",
+        "to": "z_app",
+        "lines": [
+          "f5-to-pool",
+          "tcp/8080"
+        ],
+        "kind": "solid",
+        "danger": false,
+        "rule": "f5-to-pool",
+        "path": "paloalto.rules[2]"
+      }
+    ]
+  }
+}

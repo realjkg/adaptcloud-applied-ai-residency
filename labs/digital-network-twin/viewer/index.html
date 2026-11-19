@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>Topology viewer</title>
+  <link rel="stylesheet" href="viewer.css">
+</head>
+<body>
+  <header class="bar">
+    <h1>Topology viewer</h1>
+    <span id="synthetic-badge" class="badge" hidden>Synthetic data</span>
+    <span id="integrity" class="badge" role="status"></span>
+  </header>
+
+  <main class="layout">
+    <aside class="panel" aria-label="View controls">
+      <section>
+        <h2>Point in time</h2>
+        <label for="snapshot-select">Snapshot</label>
+        <select id="snapshot-select"></select>
+        <label for="compare-select">Compare with an earlier view</label>
+        <select id="compare-select"></select>
+        <label for="load-file">Open a snapshot file</label>
+        <input id="load-file" type="file" accept=".json,application/json">
+        <p id="diff-summary" class="note"></p>
+      </section>
+
+      <section>
+        <h2>Show</h2>
+        <fieldset id="vendor-toggles"><legend>Vendors</legend></fieldset>
+        <label class="check"><input id="findings-only" type="checkbox"> Findings only</label>
+        <label for="search">Find an element</label>
+        <input id="search" type="search" autocomplete="off" placeholder="name, address, or config path">
+        <div class="row" role="group" aria-label="Zoom">
+          <button id="zoom-out" type="button" aria-label="Zoom out">&minus;</button>
+          <button id="zoom-reset" type="button" aria-label="Fit to window">Fit</button>
+          <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Capture</h2>
+        <div class="stack">
+          <button id="capture-svg" type="button">Capture view as SVG</button>
+          <button id="capture-png" type="button">Capture view as PNG</button>
+          <button id="save-json" type="button">Save snapshot as JSON</button>
+        </div>
+        <p class="note">A capture records when the state was true and the digest it was made from.</p>
+      </section>
+
+      <section>
+        <h2>Change</h2>
+        <button id="request-change" type="button" disabled aria-disabled="true">Request a change</button>
+        <p class="note">This viewer is read-only. A change goes through the guarded provisioning gate with a human approval, not from this page.</p>
+      </section>
+    </aside>
+
+    <section class="canvas-wrap" aria-label="Topology">
+      <div id="canvas" class="canvas" tabindex="-1"></div>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+    </section>
+
+    <aside class="panel" aria-label="Details">
+      <section>
+        <h2>Selected</h2>
+        <div id="detail"><p class="note">Select an element to see where it came from.</p></div>
+      </section>
+      <section>
+        <h2>Sources and access</h2>
+        <div id="sources"></div>
+      </section>
+      <section>
+        <h2>Legend</h2>
+        <ul id="legend" class="legend"></ul>
+      </section>
+    </aside>
+  </main>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

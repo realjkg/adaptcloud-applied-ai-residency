@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 1,
+  "snapshotId": "SYNTH-SNAP-001",
+  "capturedAt": "2026-11-12T09:00:00Z",
+  "label": "Early build: firewall zones only",
+  "synthetic": true,
+  "source": {
+    "kind": "synthetic-config",
+    "twinId": "SYNTH-DEMO-PARTIAL",
+    "access": [],
+    "plannedAccess": [
+      {
+        "vendor": "paloalto",
+        "level": "firewall or Panorama administrator with a read-only role",
+        "mode": "read-only"
+      }
+    ]
+  },
+  "configDigest": "3f2d3b1ff0f75a506198d40d1dd3aa3a1853c7d580355c910111657ae74d94c1",
+  "topologyDigest": "e24ef9cb5fb35f8bb7212cb9dcd4ba70c910d31dbf34c90ea71609a17158f032",
+  "topology": {
+    "groups": [
+      {
+        "id": "ngfw",
+        "title": "Palo Alto NGFW",
+        "nodeIds": [
+          "z_untrust",
+          "z_dmz",
+          "z_app",
+          "z_management",
+          "z_vpn_branch"
+        ]
+      },
+      {
+        "id": "mgmt",
+        "title": "Management",
+        "nodeIds": [
+          "panorama"
+        ]
+      }
+    ],
+    "nodes": [
+      {
+        "id": "z_untrust",
+        "lines": [
+          "zone untrust",
+          "ethernet1/1 198.51.100.2/24"
+        ],
+        "vendor": "paloalto",
+        "path": "paloalto.zones"
+      },
+      {
+        "id": "z_dmz",
+        "lines": [
+          "zone dmz",
+          "ethernet1/2 10.20.0.2/24"
+        ],
+        "vendor": "paloalto",
+        "path": "paloalto.zones"
+      },
+      {
+        "id": "z_app",
+        "lines": [
+          "zone app",
+          "ethernet1/3 10.30.0.1/24"
+        ],
+        "vendor": "paloalto",
+        "path": "paloalto.zones"
+      },
+      {
+        "id": "z_management",
+        "lines": [
+          "zone management",
+          "ethernet1/4 10.99.0.1/24"
+        ],
+        "vendor": "paloalto",
+        "path": "paloalto.zones"
+      },
+      {
+        "id": "z_vpn_branch",
+        "lines": [
+          "zone vpn-branch",
+          "tunnel.1 10.50.0.1/30"
+        ],
+        "vendor": "paloalto",
+        "path": "paloalto.zones"
+      },
+      {
+        "id": "panorama",
+        "lines": [
+          "Panorama",
+          "10.99.0.5"
+        ],
+        "vendor": "paloalto",
+        "path": "addressing.panorama"
+      }
+    ],
+    "edges": [
+      {
+        "from": "panorama",
+        "to": "z_management",
+        "lines": [
+          "manages https ssh"
+        ],
+        "kind": "dotted",
+        "danger": false
+      }
+    ]
+  }
+}

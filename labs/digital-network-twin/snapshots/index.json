@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "snapshots": [
+    {
+      "id": "SYNTH-SNAP-001",
+      "label": "Early build: firewall zones only",
+      "capturedAt": "2026-11-12T09:00:00Z",
+      "file": "SYNTH-SNAP-001.json"
+    },
+    {
+      "id": "SYNTH-SNAP-002",
+      "label": "Firewall and F5 added",
+      "capturedAt": "2026-11-14T09:00:00Z",
+      "file": "SYNTH-SNAP-002.json"
+    },
+    {
+      "id": "SYNTH-SNAP-003",
+      "label": "Reference build",
+      "capturedAt": "2026-11-17T09:00:00Z",
+      "file": "SYNTH-SNAP-003.json"
+    },
+    {
+      "id": "SYNTH-SNAP-004",
+      "label": "Proposed change: branch to pool rule",
+      "capturedAt": "2026-11-18T09:00:00Z",
+      "file": "SYNTH-SNAP-004.json"
+    }
+  ]
+}
