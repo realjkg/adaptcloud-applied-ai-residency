@@ -110,7 +110,7 @@ diagram would need a parser or plan-JSON reader and a resource-to-shape table pe
 ## Roadmap
 
 1. Verify the collectors and sign-in against real systems in a lab, then correct the response shapes.
-2. Palo Alto and Meraki write adapters, behind the same gate.
+2. Confirm the Palo Alto and Meraki write adapters against a named disposable target.
 3. Snapshot storage in the customer's object store with write-once retention; durable change requests.
 4. Drift alerts against the as-built requirements, and vendor icon stencils in the draw.io export.
 

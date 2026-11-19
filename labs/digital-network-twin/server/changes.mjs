@@ -11,17 +11,18 @@
 import { randomBytes } from "node:crypto";
 import { apply, destroy, plan, prepare, selectChangeSet } from "../tools/provision.mjs";
 import { digestOf } from "../tools/provision-policy.mjs";
+import { digest as hashOf } from "./adapters/common.mjs";
 import { buildChangeSet } from "../tools/render-iac.mjs";
 import { can } from "./roles.mjs";
 
 const MAX_CONFIG_BYTES = 200_000;
 const deny = (code) => ({ ok: false, code });
 
-export function createChangeService({ transport, policy, tenantId, owner, baseline, audit, now = () => new Date(), killSwitch = () => false }) {
+export function createChangeService({ transport, policy, tenantId, owner, baseline, audit, now = () => new Date(), killSwitch = () => false, planTtlMs = 30 * 60_000 }) {
   const changes = new Map();
   const id = () => `CHG-${randomBytes(5).toString("hex").toUpperCase()}`;
   const target = { environment: policy.environment, tenantId, owner };
-  const view = (c) => ({ id: c.id, action: c.action, selectors: c.selectors, requester: c.requester.name, requestedAt: c.requestedAt, status: c.status, digest: c.digest, summary: c.summary, entries: c.entries, approver: c.approver?.name ?? null, result: c.result ?? null, transport: transport.kind });
+  const view = (c) => ({ id: c.id, planDigest: c.planDigest, expiresAt: c.expiresAt, action: c.action, selectors: c.selectors, requester: c.requester.name, requestedAt: c.requestedAt, status: c.status, digest: c.digest, summary: c.summary, entries: c.entries, approver: c.approver?.name ?? null, result: c.result ?? null, transport: transport.kind });
 
   return {
     /** The controls a request may target: every vendor and object kind in the change set, and whether the transport can perform it. */
@@ -52,18 +53,24 @@ export function createChangeService({ transport, policy, tenantId, owner, baseli
       const planned = await plan({ changeset, transport, policy, target, killSwitch: killSwitch() });
       if (!planned.ok) return { ok: false, code: planned.refusal, detail: planned.detail };
       const c = { id: id(), action, selectors: [...selectors].sort(), requester: { subject: user.subject, name: user.name }, requestedAt: now().toISOString(), status: "pending_approval", changeset, digest: planned.digest, summary: planned.summary, entries: planned.entries };
+      // The approval binds the change set and the state it was planned against. A different state needs a new plan.
+      c.baselineDigest = hashOf(planned.entries);
+      c.planDigest = hashOf({ digest: c.digest, baseline: c.baselineDigest, action, scope: c.selectors });
+      c.expiresAt = new Date(now().getTime() + planTtlMs).toISOString();
       changes.set(c.id, c);
       await audit.record({ event: "change.requested", change: c.id, actor: user.subject, action, scope: c.selectors.join(","), digest: c.digest });
       return { ok: true, change: view(c) };
     },
 
-    async decide(user, changeId, decision) {
+    async decide(user, changeId, decision, planDigest) {
       if (!can(user.roles, "change:approve")) return deny("forbidden");
       const c = changes.get(changeId);
       if (!c) return deny("not_found");
       if (c.status !== "pending_approval") return deny("not_pending");
       if (c.requester.subject === user.subject) return deny("self_approval");
       if (decision !== "approve" && decision !== "reject") return deny("decision_invalid");
+      if (decision === "approve" && now() >= new Date(c.expiresAt)) { c.status = "expired"; return deny("plan_expired"); }
+      if (decision === "approve" && planDigest !== c.planDigest) return deny("plan_digest_mismatch");
       if (decision === "reject") {
         c.status = "rejected";
         await audit.record({ event: "change.rejected", change: c.id, actor: user.subject });
@@ -80,9 +87,19 @@ export function createChangeService({ transport, policy, tenantId, owner, baseli
       if (!can(user.roles, "change:apply")) return deny("forbidden");
       const c = changes.get(changeId);
       if (!c) return deny("not_found");
+      // A repeat, or a concurrent call, returns what already happened and never writes again.
+      if (["completed", "failed", "executing", "stale", "expired"].includes(c.status)) return { ok: c.status === "completed", code: c.status === "completed" ? undefined : `already_${c.status}`, change: view(c), existing: true };
       if (c.status !== "approved") return deny("not_approved");
-      const common = { changeset: c.changeset, transport, policy, target, approval: c.approval, now: now(), killSwitch: killSwitch() };
+      if (now() >= new Date(c.expiresAt)) { c.status = "expired"; await audit.record({ event: "change.expired", change: c.id, actor: user.subject }); return { ok: false, code: "approval_expired", change: view(c) }; }
       c.status = "executing";
+      // Immediately before writing: is the target still in the state the plan was made against?
+      const fresh = await plan({ changeset: c.changeset, transport, policy, target, killSwitch: killSwitch() });
+      if (fresh.ok && hashOf(fresh.entries) !== c.baselineDigest) {
+        c.status = "stale";
+        await audit.record({ event: "change.drift", change: c.id, actor: user.subject });
+        return { ok: false, code: "drift_detected_new_plan_required", change: view(c) };
+      }
+      const common = { changeset: c.changeset, transport, policy, target, approval: c.approval, now: now(), killSwitch: killSwitch() };
       const replan = await plan({ changeset: c.changeset, transport, policy, target, killSwitch: killSwitch() });
       const result = !replan.ok ? replan : c.action === "apply" ? await apply({ ...common, plannedDigest: replan.digest }) : await destroy(common);
       c.status = result.ok ? "completed" : "failed";

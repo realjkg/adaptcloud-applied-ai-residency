@@ -23,7 +23,7 @@ const MAX_BODY = 256 * 1024;
 const HEX = /^[0-9a-f]{64}$/;
 const CHG = /^CHG-[0-9A-F]{10}$/;
 
-export function createApp({ mode, origin, secureCookies = false, sessions, oidc = null, personas = {}, groupRoles = {}, store, scheduler, changes, audit, collectNow, killSwitch }) {
+export function createApp({ mode, origin, secureCookies = false, sessions, oidc = null, personas = {}, groupRoles = {}, store, scheduler, changes, operations = null, audit, collectNow, killSwitch }) {
   if (mode !== "simulator" && mode !== "live") throw new Error("mode must be simulator or live");
   if (mode === "live" && !oidc) throw new Error("live mode requires OpenID Connect sign-in");
 
@@ -129,8 +129,18 @@ export function createApp({ mode, origin, secureCookies = false, sessions, oidc 
           const r = await changes.request(user, { action: body.action, selectors: body.selectors, config: body.config });
           return json(r.ok ? 201 : r.code === "forbidden" ? 403 : 422, r);
         }
-        if (req.method === "POST" && CHG.test(parts[2] ?? "") && parts[3] === "decision") { const r = await changes.decide(user, parts[2], body.decision); return json(r.ok ? 200 : r.code === "forbidden" || r.code === "self_approval" ? 403 : 409, r); }
+        if (req.method === "POST" && CHG.test(parts[2] ?? "") && parts[3] === "decision") { const r = await changes.decide(user, parts[2], body.decision, body.planDigest); return json(r.ok ? 200 : r.code === "forbidden" || r.code === "self_approval" ? 403 : 409, r); }
         if (req.method === "POST" && CHG.test(parts[2] ?? "") && parts[3] === "execute") { const r = await changes.execute(user, parts[2]); return json(r.ok ? 200 : r.code === "forbidden" ? 403 : 409, r); }
+      }
+      if (parts[1] === "targets" && req.method === "GET") { if (!(await need("operation:read"))) return; return json(200, { targets: operations ? operations.targets() : [] }); }
+      if (parts[1] === "operations" && operations) {
+        const OPID = /^OP-[0-9A-F]{10}$/;
+        const code = (r, ok = 200) => (r.ok ? ok : r.code === "forbidden" || r.code === "self_approval" ? 403 : r.code === "not_found" ? 404 : r.code?.startsWith("already_") || r.code === "not_pending" || r.code === "not_approved" ? 409 : 422);
+        if (req.method === "GET" && parts.length === 2) { if (!(await need("operation:read"))) return; return json(200, { operations: operations.list() }); }
+        if (req.method === "POST" && parts.length === 2) { const r = await operations.request(user, body); return json(code(r, 201), r); }
+        if (req.method === "POST" && OPID.test(parts[2] ?? "") && parts[3] === "decision") { const r = await operations.decide(user, parts[2], body); return json(code(r), r); }
+        if (req.method === "POST" && OPID.test(parts[2] ?? "") && parts[3] === "execute") { const r = await operations.execute(user, parts[2]); return json(code(r), r); }
+        if (req.method === "POST" && OPID.test(parts[2] ?? "") && parts[3] === "rollback") { const r = await operations.rollback(user, parts[2]); return json(code(r, 201), r); }
       }
       if (parts[1] === "audit" && req.method === "GET") {
         if (!(await need("audit:read"))) return;

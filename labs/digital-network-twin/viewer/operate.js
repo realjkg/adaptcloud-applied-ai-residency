@@ -41,11 +41,13 @@ export async function startOperate({ onSnapshots, say }) {
   }
   csrf = me.json.csrf;
   const perms = new Set(me.json.permissions);
-  const state = { user: me.json.user, killSwitch: me.json.killSwitch, controls: [], picked: new Set(), file: null };
+  const state = { user: me.json.user, killSwitch: me.json.killSwitch, controls: [], picked: new Set(), file: null, targets: [], operations: [], draft: { targetId: "", changeType: "", values: {} }, exclusive: new Set() };
 
   async function refresh() {
-    const [changes, schedule, controls] = await Promise.all([api("GET", "/api/changes"), api("GET", "/api/schedule"), api("GET", "/api/controls")]);
+    const [changes, schedule, controls, targets, operations] = await Promise.all([api("GET", "/api/changes"), api("GET", "/api/schedule"), api("GET", "/api/controls"), api("GET", "/api/targets"), api("GET", "/api/operations")]);
     state.controls = controls.json?.controls ?? [];
+    state.targets = targets.json?.targets ?? [];
+    state.operations = operations.json?.operations ?? [];
     render(changes.json?.changes ?? [], schedule.json);
   }
 
@@ -102,6 +104,7 @@ export async function startOperate({ onSnapshots, say }) {
       parts.push(form);
     }
 
+    parts.push(...renderOperations());
     const list = h("div", { class: "stack", id: "change-list" }, h("h3", {}, "Changes"));
     if (changes.length === 0) list.append(h("p", { class: "note" }, "No changes yet."));
     for (const c of changes) {
@@ -109,7 +112,7 @@ export async function startOperate({ onSnapshots, say }) {
       item.append(h("p", {}, `${c.id}: ${c.action} ${c.selectors.join(", ")}`));
       item.append(h("p", { class: "note" }, `${c.status}. Requested by ${c.requester}${c.approver ? `, approved by ${c.approver}` : ""}. Digest ${short(c.digest)}. Plan: ${Object.entries(c.summary ?? {}).map(([k, v]) => `${v} ${k}`).join(", ") || "none"}. ${c.transport} transport.${c.result ? ` Result: ${c.result.ok ? "ok" : `refused (${c.result.refusal})`}.` : ""}`));
       if (c.status === "pending_approval" && perms.has("change:approve")) {
-        item.append(button("Approve", () => act(() => api("POST", `/api/changes/${c.id}/decision`, { decision: "approve" }), "Approved for this digest.")));
+        item.append(button("Approve", () => act(() => api("POST", `/api/changes/${c.id}/decision`, { decision: "approve", planDigest: c.planDigest }), "Approved for this digest.")));
         item.append(button("Reject", () => act(() => api("POST", `/api/changes/${c.id}/decision`, { decision: "reject" }), "Rejected.")));
       }
       if (c.status === "approved" && perms.has("change:apply")) item.append(button("Execute", async () => { const r = await act(() => api("POST", `/api/changes/${c.id}/execute`, {}), "Executed."); if (r.ok) await onSnapshots(); }));
@@ -123,6 +126,65 @@ export async function startOperate({ onSnapshots, say }) {
       root.append(box);
     }));
     root.replaceChildren(...parts);
+  }
+
+  function renderOperations() {
+    const out = [];
+    if (state.targets.length === 0) return out;
+    if (perms.has("operation:request")) {
+      const form = h("div", { class: "stack", id: "operation-form" }, h("h3", {}, "Target change"));
+      form.append(h("p", { class: "note" }, "Choose an approved target and a change type. The server decides where the change goes; this page cannot name a host, URL, or command. Each change needs a different person's approval and is re-checked just before it runs."));
+      const targetSel = h("select", { id: "op-target", "aria-label": "Target" }, h("option", { value: "" }, "Select a target"));
+      for (const t of state.targets) targetSel.append(h("option", { value: t.id }, `${t.label} (${t.vendor}${t.disposable ? ", disposable" : ""})`));
+      targetSel.value = state.draft.targetId;
+      const typeSel = h("select", { id: "op-type", "aria-label": "Change type" });
+      const fieldsBox = h("div", { class: "stack" });
+      const typesFor = () => state.targets.find((t) => t.id === targetSel.value)?.changeTypes ?? [];
+      const drawFields = () => {
+        fieldsBox.replaceChildren();
+        const def = typesFor().find((c) => c.id === typeSel.value);
+        for (const f of def?.fields ?? []) {
+          const input = f.options ? h("select", { "aria-label": f.label, "data-field": f.name }, ...f.options.map((o) => h("option", { value: o }, o))) : h("input", { type: "text", "aria-label": f.label, "data-field": f.name, placeholder: f.label, autocomplete: "off" });
+          input.value = state.draft.values[f.name] ?? (f.options ? f.options[0] : "");
+          input.addEventListener("input", () => { state.draft.values[f.name] = input.value; });
+          if (f.options) state.draft.values[f.name] ??= f.options[0];
+          fieldsBox.append(h("label", {}, f.label), input);
+        }
+      };
+      const drawTypes = () => {
+        typeSel.replaceChildren(...typesFor().map((c) => h("option", { value: c.id }, c.label)));
+        state.draft.targetId = targetSel.value;
+        state.draft.changeType = typeSel.value;
+        drawFields();
+      };
+      targetSel.addEventListener("change", () => { state.draft.values = {}; drawTypes(); });
+      typeSel.addEventListener("change", () => { state.draft.values = {}; state.draft.changeType = typeSel.value; drawFields(); });
+      drawTypes();
+      form.append(targetSel, typeSel, fieldsBox, button("Plan this change", () => act(() => api("POST", "/api/operations", { targetId: targetSel.value, changeType: typeSel.value, params: Object.fromEntries(Object.entries(state.draft.values).filter(([, v]) => v !== "")) }), "Planned. The diff below is what an approver will see.")));
+      out.push(form);
+    }
+    const list = h("div", { class: "stack", id: "operation-list" }, h("h3", {}, "Target changes"));
+    if (state.operations.length === 0) list.append(h("p", { class: "note" }, "No target changes yet."));
+    for (const o of state.operations) {
+      const item = h("div", { class: "change", "data-operation": o.id });
+      item.append(h("p", {}, `${o.id}: ${o.changeType} on ${o.targetId}${o.rollbackOf ? ` (rollback of ${o.rollbackOf})` : ""}`));
+      item.append(h("p", { class: "note" }, `${o.status}. Requested by ${o.requester}${o.approver ? `, approved by ${o.approver}` : ""}. Plan digest ${short(o.planDigest)}. Expires ${o.expiresAt}. ${o.transport} transport.${o.result ? ` Result: ${o.result.outcome}${o.result.reason ? ` (${o.result.reason})` : ""}${o.result.candidateLeftInPlace ? ". A candidate edit was left in place for review" : ""}.` : ""}`));
+      if (o.commitScope) item.append(h("p", { class: "note" }, `Commit scope: ${o.commitScope.kind} commit by ${o.commitScope.byAdmin} in ${o.commitScope.vsys}, objects ${o.commitScope.objects.join(", ")}. Pending changes before: ${o.commitScope.pendingBefore}.`));
+      const diff = h("pre", { class: "diff", "aria-label": "Dry-run diff" });
+      diff.textContent = [...o.diff.before.map((l) => `${l.change === "removed" ? "-" : " "} ${l.line}`), "---", ...o.diff.after.map((l) => `${l.change === "added" ? "+" : " "} ${l.line}`)].join("\n") + (o.diff.unrelatedRulesUnchanged === true ? "\nUnrelated rules unchanged." : "");
+      item.append(diff);
+      if (o.status === "pending_approval" && perms.has("operation:approve")) {
+        let box = null;
+        if (o.requiresExclusiveWindow) { box = h("input", { type: "checkbox", "data-exclusive": o.id }); item.append(h("label", { class: "check" }, box, " I confirm an exclusive change window: nobody else will edit this list during the write")); }
+        item.append(button("Approve", () => act(() => api("POST", `/api/operations/${o.id}/decision`, { decision: "approve", planDigest: o.planDigest, exclusiveWindow: box ? box.checked : false }), "Approved for this plan.")));
+        item.append(button("Reject", () => act(() => api("POST", `/api/operations/${o.id}/decision`, { decision: "reject" }), "Rejected.")));
+      }
+      if (o.status === "approved" && perms.has("operation:execute")) item.append(button("Execute", async () => { await act(() => api("POST", `/api/operations/${o.id}/execute`, {}), "Executed and verified."); }));
+      if (["completed", "uncertain"].includes(o.status) && perms.has("operation:request")) item.append(button("Plan a rollback", () => act(() => api("POST", `/api/operations/${o.id}/rollback`, {}), "A rollback was planned. It needs its own approval.")));
+      list.append(item);
+    }
+    out.push(list);
+    return out;
   }
 
   await refresh();

@@ -9,6 +9,9 @@
 
 const METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 
+import { PRE_SEND_REFUSALS } from "../refusal-codes.mjs";
+export { PRE_SEND_REFUSALS };
+
 export class HttpRefusal extends Error {
   constructor(code) {
     super(code);
@@ -44,7 +47,7 @@ export function createGuardedHttp({ allowedHosts, fetchImpl = globalThis.fetch, 
   if ([...allowed].some((host) => host.includes("*") || host.length === 0)) throw new Error("allowedHosts must be exact host names");
 
   /** @returns {Promise<{status:number, json:any}>} */
-  return async function request({ method, url, headers = {}, body, auth }) {
+  return async function request({ method, url, headers = {}, body, auth, expect = "json" }) {
     if (!METHODS.has(method)) throw new HttpRefusal("method_not_allowed");
     let parsed;
     try {
@@ -81,6 +84,13 @@ export function createGuardedHttp({ allowedHosts, fetchImpl = globalThis.fetch, 
       }
       if (text.length > maxBytes) throw new HttpRefusal("result_too_large");
       if (text.length === 0) return { status: response.status, json: null };
+      if (expect === "xml") {
+        // PAN-OS commit and job calls answer in XML. DTDs and entities are never accepted, and the caller reads
+        // values with a narrow extractor rather than a general parser.
+        if (!/^(application|text)\/xml\b/i.test(response.headers.get("content-type") ?? "")) throw new HttpRefusal("content_type_not_allowed");
+        if (/<!DOCTYPE|<!ENTITY/i.test(text)) throw new HttpRefusal("xml_dtd_not_permitted");
+        return { status: response.status, text };
+      }
       if (!/^application\/json\b/i.test(response.headers.get("content-type") ?? "")) throw new HttpRefusal("content_type_not_allowed");
       try {
         return { status: response.status, json: JSON.parse(text) };

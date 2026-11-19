@@ -223,8 +223,10 @@ test("a write goes request, approve by someone else, apply, and is audited with 
     assert.equal(req.status, 201);
     const id = req.body.change.id;
     assert.equal((await op.call("POST", `/api/changes/${id}/execute`, {})).status, 409, "not approved yet");
-    assert.equal((await op.call("POST", `/api/changes/${id}/decision`, { decision: "approve" })).status, 403, "operator cannot approve");
-    assert.equal((await ap.call("POST", `/api/changes/${id}/decision`, { decision: "approve" })).status, 200);
+    const pd = req.body.change.planDigest;
+    assert.equal((await op.call("POST", `/api/changes/${id}/decision`, { decision: "approve", planDigest: pd })).status, 403, "operator cannot approve");
+    assert.equal((await ap.call("POST", `/api/changes/${id}/decision`, { decision: "approve", planDigest: "0".repeat(64) })).status, 409, "approval must echo the plan digest");
+    assert.equal((await ap.call("POST", `/api/changes/${id}/decision`, { decision: "approve", planDigest: pd })).status, 200);
     const done = await op.call("POST", `/api/changes/${id}/execute`, {});
     assert.equal(done.status, 200);
     assert.equal(done.body.change.status, "completed");
@@ -243,7 +245,7 @@ test("nobody approves their own request, and an admin who is also an approver is
     const admin = await t.client("admin");
     const req = await admin.call("POST", "/api/changes", { action: "apply", selectors: ["f5/pool"] });
     assert.equal(req.status, 201);
-    const r = await admin.call("POST", `/api/changes/${req.body.change.id}/decision`, { decision: "approve" });
+    const r = await admin.call("POST", `/api/changes/${req.body.change.id}/decision`, { decision: "approve", planDigest: req.body.change.planDigest });
     assert.equal(r.status, 403);
     assert.equal(r.body.code, "self_approval");
   } finally { t.close(); }
@@ -270,7 +272,7 @@ test("the kill switch refuses new requests and executions, and only an admin can
   try {
     const op = await t.client("operator"); const ap = await t.client("approver"); const admin = await t.client("admin");
     const req = await op.call("POST", "/api/changes", { action: "apply", selectors: ["f5/pool"] });
-    await ap.call("POST", `/api/changes/${req.body.change.id}/decision`, { decision: "approve" });
+    await ap.call("POST", `/api/changes/${req.body.change.id}/decision`, { decision: "approve", planDigest: req.body.change.planDigest });
     assert.equal((await op.call("POST", "/api/killswitch", { on: true })).status, 403);
     assert.equal((await admin.call("POST", "/api/killswitch", { on: true })).status, 200);
     assert.equal((await op.call("POST", "/api/changes", { action: "apply", selectors: ["f5/pool"] })).status, 422);
@@ -397,4 +399,143 @@ test("live service: the gate refuses a write without the recorded authorization"
   const r = await svc.changes.request({ subject: "u", name: "U", roles: ["operator"] }, { action: "apply", selectors: ["cloudflare/dns-record"] });
   assert.equal(r.ok, false);
   assert.match(r.code, /live|authorization|environment|transport/);
+});
+
+// ---- per-execution authorization over HTTP, and the hardened config-change path
+test("target changes over HTTP: roles, self-approval, digest echo, expiry, drift, and a single write", async () => {
+  const t = await service();
+  try {
+    const op = await t.client("operator"); const ap = await t.client("approver"); const viewer = await t.client("viewer"); const admin = await t.client("admin");
+    const targets = (await viewer.call("GET", "/api/targets")).body.targets;
+    assert.ok(targets.every((x) => !("host" in x) && !("credentialEnv" in x)), "no host or credential name reaches the browser");
+    const body = { targetId: "sim-mx-1", changeType: "l3-firewall-rule.add", params: { policy: "allow", protocol: "tcp", srcCidr: "10.40.0.0/24", srcPort: "any", destCidr: "10.20.0.100/32", destPort: "443", comment: "web" } };
+    assert.equal((await viewer.call("POST", "/api/operations", body)).status, 403);
+    assert.equal((await op.call("POST", "/api/operations", { ...body, targetId: "nowhere" })).status, 422);
+    const req = await op.call("POST", "/api/operations", { ...body, url: "https://evil.example" });
+    assert.equal(req.status, 201);
+    const id = req.body.operation.id;
+    const pd = req.body.operation.planDigest;
+    assert.equal((await op.call("POST", `/api/operations/${id}/decision`, { decision: "approve", planDigest: pd })).status, 403);
+    assert.equal((await ap.call("POST", `/api/operations/${id}/decision`, { decision: "approve", planDigest: "1".repeat(64), exclusiveWindow: true })).status, 422);
+    assert.equal((await op.call("POST", `/api/operations/${id}/execute`, {})).status, 409, "not approved");
+    assert.equal((await ap.call("POST", `/api/operations/${id}/decision`, { decision: "approve", planDigest: pd, exclusiveWindow: true })).status, 200);
+    assert.equal((await ap.call("POST", `/api/operations/${id}/execute`, {})).status, 403, "an approver cannot execute");
+    // Drift: someone edits the target after approval.
+    t.svc.sim.mx.rules.push({ comment: "other", policy: "allow", protocol: "any", srcPort: "any", srcCidr: "any", destPort: "any", destCidr: "any", syslogEnabled: false });
+    const stale = await op.call("POST", `/api/operations/${id}/execute`, {});
+    assert.equal(stale.status, 422);
+    assert.equal(stale.body.code, "drift_detected_new_plan_required");
+    // A new plan, a new approval, and one write even when executed twice.
+    const again = await op.call("POST", "/api/operations", body);
+    const id2 = again.body.operation.id;
+    await ap.call("POST", `/api/operations/${id2}/decision`, { decision: "approve", planDigest: again.body.operation.planDigest, exclusiveWindow: true });
+    const writesBefore = t.svc.sim.writes;
+    const [x, y] = await Promise.all([op.call("POST", `/api/operations/${id2}/execute`, {}), op.call("POST", `/api/operations/${id2}/execute`, {})]);
+    assert.equal(t.svc.sim.writes, writesBefore + 1);
+    assert.ok([x.status, y.status].includes(200));
+    assert.equal((await op.call("POST", `/api/operations/${id2}/execute`, {})).body.existing, true);
+    assert.equal(t.svc.sim.mx.rules.length, 2, "the other person's rule survived");
+    const rb = await op.call("POST", `/api/operations/${id2}/rollback`, {});
+    assert.equal(rb.status, 201);
+    assert.equal((await op.call("POST", `/api/operations/${rb.body.operation.id}/execute`, {})).status, 409, "a rollback needs its own approval");
+    assert.equal((await admin.call("POST", `/api/operations/${id2}/decision`, { decision: "approve", planDigest: pd })).status, 409);
+    const log = (await ap.call("GET", "/api/audit")).body;
+    assert.equal(log.verify.ok, true);
+    for (const e of ["operation.requested", "operation.approved", "operation.drift", "operation.executed"]) assert.ok(log.entries.some((x2) => x2.event === e), e);
+  } finally { t.close(); }
+});
+
+test("config changes (Cloudflare, F5): approval is bound to the baseline, an expired plan is refused, drift makes it stale, and a repeat writes once", async () => {
+  const dir = tmp();
+  let now = Date.parse("2026-11-19T10:00:00Z");
+  const svc = await createSimulatorService({ dir, origin: "http://x", now: () => new Date(now) });
+  const OPR = { subject: "u1", name: "Op", roles: ["operator"] }; const APR = { subject: "u2", name: "Ap", roles: ["approver"] };
+  const r = await svc.changes.request(OPR, { action: "apply", selectors: ["f5/pool"] });
+  assert.equal((await svc.changes.decide(APR, r.change.id, "approve", "0".repeat(64))).code, "plan_digest_mismatch");
+  now += 31 * 60_000;
+  assert.equal((await svc.changes.decide(APR, r.change.id, "approve", r.change.planDigest)).code, "plan_expired");
+
+  const r2 = await svc.changes.request(OPR, { action: "apply", selectors: ["f5/pool"] });
+  await svc.changes.decide(APR, r2.change.id, "approve", r2.change.planDigest);
+  // The target changes after approval: a same-named object the twin does not own appears.
+  svc.transport.seedUnmanaged({ vendor: "f5", object: "pool", name: "app-pool" }, { note: "someone else" });
+  const stale = await svc.changes.execute(OPR, r2.change.id);
+  assert.equal(stale.code, "drift_detected_new_plan_required");
+
+  const r3 = await svc.changes.request(OPR, { action: "apply", selectors: ["f5/monitor"] });
+  await svc.changes.decide(APR, r3.change.id, "approve", r3.change.planDigest);
+  const [a, b] = await Promise.all([svc.changes.execute(OPR, r3.change.id), svc.changes.execute(OPR, r3.change.id)]);
+  assert.ok(a.ok || b.ok);
+  assert.equal((await svc.changes.execute(OPR, r3.change.id)).existing, true);
+  assert.equal([...svc.transport.state.keys()].filter((k) => k.startsWith("f5/monitor/")).length, 1);
+});
+
+// ---- live wiring of target writes, with a fake vendor
+test("live service: target writes are refused without the per-execution recorded authorization, and permitted hosts are exact", async () => {
+  const { LIVE_WRITE_ADR } = await import("../server/live-authorization.mjs");
+  const mx = { rules: [] };
+  const fetchImpl = async (url, init) => {
+    const u = new URL(url);
+    if (u.hostname === "idp.example") return new Response("{}", { status: 404 });
+    if (u.hostname !== "n1.meraki.example") throw new Error(`unexpected host ${u.hostname}`);
+    if (init.method === "PUT") { mx.rules = JSON.parse(init.body).rules; }
+    return new Response(JSON.stringify({ rules: [...mx.rules, { comment: "Default rule", policy: "allow", protocol: "any", srcPort: "Any", srcCidr: "Any", destPort: "Any", destCidr: "Any", syslogEnabled: false }] }), { headers: { "content-type": "application/json" } });
+  };
+  const target = { id: "lab-mx-1", label: "Lab MX", vendor: "meraki", environment: "lab", disposable: true, host: "n1.meraki.example", networkId: "N_1", credentialEnv: "MERAKI_KEY_LAB", changeTypes: ["l3-firewall-rule.add", "l3-firewall-rule.remove"] };
+  const make = (policyExtra) => createLiveService({ settings: liveSettings(tmp(), { targets: [target], policy: { ...liveSettings(tmp()).policy, ...policyExtra } }), env: { MERAKI_KEY_LAB: "SYNTH-MX" }, fetchImpl });
+  const OPR = { subject: "u1", name: "Op", roles: ["operator"] }; const APR = { subject: "u2", name: "Ap", roles: ["approver"] };
+  const body = { targetId: "lab-mx-1", changeType: "l3-firewall-rule.add", params: { policy: "allow", protocol: "tcp", srcCidr: "10.40.0.0/24", srcPort: "any", destCidr: "10.20.0.100/32", destPort: "443", comment: "web" } };
+
+  const unauthorized = await make({});
+  const r = await unauthorized.operations.request(OPR, body);
+  await unauthorized.operations.decide(APR, r.operation.id, { decision: "approve", planDigest: r.operation.planDigest, exclusiveWindow: true });
+  const refused = await unauthorized.operations.execute(OPR, r.operation.id);
+  assert.equal(refused.code, "live_not_authorized");
+  assert.equal(mx.rules.length, 0, "enabling an adapter authorized nothing");
+
+  const authorized = await make({ liveAuthorization: { adr: LIVE_WRITE_ADR, acknowledgesUntested: true } });
+  const r2 = await authorized.operations.request(OPR, body);
+  await authorized.operations.decide(APR, r2.operation.id, { decision: "approve", planDigest: r2.operation.planDigest, exclusiveWindow: true });
+  const done = await authorized.operations.execute(OPR, r2.operation.id);
+  assert.equal(done.ok, true, JSON.stringify(done));
+  assert.equal(done.operation.transport, "live");
+  assert.equal(mx.rules.length, 1);
+  await assert.rejects(createLiveService({ settings: liveSettings(tmp(), { targets: [{ ...target, environment: "production" }] }), env: {}, fetchImpl }), /disposable lab target/);
+});
+
+test("in a browser: a simulated SD-WAN change is planned, approved with an exclusive-window confirmation, and executed", { skip: playwright ? false : "playwright not installed" }, async () => {
+  const t = await service();
+  const browser = await playwright.chromium.launch();
+  try {
+    const open = async (persona) => {
+      const page = await (await browser.newContext()).newPage();
+      await page.goto(t.base);
+      await page.locator(`[data-persona="${persona}"]`).click();
+      await page.waitForSelector("#operate-root h3");
+      return page;
+    };
+    const op = await open("operator");
+    await op.locator("#op-target").selectOption("sim-mx-1");
+    await op.locator("#op-type").selectOption("sdwan.uplink-preference.set");
+    await op.locator("[data-field='trafficClass']").fill("voice");
+    await op.locator("[data-field='preferredUplink']").selectOption("wan2");
+    await op.getByRole("button", { name: "Plan this change" }).click();
+    await op.waitForSelector("[data-operation]");
+    assert.match(await op.locator(".diff").first().textContent(), /\+ voice -> wan2/);
+    assert.equal(await op.getByRole("button", { name: "Approve" }).count(), 0);
+
+    const ap = await open("approver");
+    await ap.waitForSelector("[data-operation]");
+    await ap.getByRole("button", { name: "Approve" }).last().click();
+    await ap.waitForFunction(() => /exclusive_window_confirmation_required/.test(document.querySelector("#status").textContent));
+    await ap.locator("[data-exclusive]").check();
+    await ap.getByRole("button", { name: "Approve" }).last().click();
+    await ap.waitForFunction(() => /approved by Ana/.test(document.querySelector("[data-operation]").textContent));
+
+    await op.reload();
+    await op.waitForSelector("[data-operation]");
+    await op.getByRole("button", { name: "Execute" }).click();
+    await op.waitForFunction(() => /completed/.test(document.querySelector("[data-operation]").textContent));
+    assert.equal(t.svc.sim.sdwan.prefs.voice, "wan2");
+  } finally { await browser.close(); t.close(); }
 });

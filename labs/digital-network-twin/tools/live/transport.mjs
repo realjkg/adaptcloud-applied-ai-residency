@@ -1,7 +1,10 @@
 // Live transport: routes each vendor to its adapter, each through its own guarded HTTP client whose only
 // allowed hosts are that vendor's allowlisted hosts. Vendors without an adapter are refused as unsupported.
 //
-// Palo Alto Networks is not implemented. The REST API documentation read for this project (PAN-OS 11.1, see
+// Palo Alto Networks and Meraki are not implemented in this config-change transport. Their live writes are single-target
+// operations in server/operations.mjs with per-execution authorization (docs/adr/0002-per-execution-authorization.md).
+//
+// Palo Alto Networks is not implemented here. The REST API documentation read for this project (PAN-OS 11.1, see
 // docs/API_NOTES.md) shows that address objects carry a description and that a rule can be moved, so this is a
 // decision, not an impossibility. What stops it: a rule's service is a service object or application-default, and
 // the REST API can create service objects but the change set does not define them yet, an ownership mark on rules

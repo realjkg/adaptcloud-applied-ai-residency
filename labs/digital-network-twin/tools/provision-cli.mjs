@@ -23,20 +23,13 @@ import { LabTransport } from "./lab-transport.mjs";
 import { createLiveTransport } from "./live/transport.mjs";
 import { apply, destroy, plan, prepare, selectChangeSet } from "./provision.mjs";
 import { digestOf, stableStringify } from "./provision-policy.mjs";
+import { SIMULATION_POLICY } from "./simulation-policy.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CONFIG = join(HERE, "..", "config", "twin-config.json");
 const DEFAULT_STATE = ".twin-lab-state.json";
 
-export const SIMULATION_POLICY = {
-  enabled: true,
-  environment: "lab",
-  allowedTenants: ["lab-tenant-001"],
-  allowedVendors: ["paloalto", "f5", "cloudflare", "meraki"],
-  transport: "simulator",
-  maxOperations: 50,
-  allowDestroy: true
-};
+export { SIMULATION_POLICY };
 
 /**
  * Applies and destroys the whole twin against a simulated tenant that already holds objects it does not own,

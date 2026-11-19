@@ -53,3 +53,5 @@ a.button:hover { border-color: var(--accent); }
 .change { border: 1px solid var(--line); border-radius: 6px; padding: 8px; display: grid; gap: 6px; }
 .change p { margin: 0; }
 #control-list { max-height: 220px; overflow: auto; }
+
+.diff { margin: 0; padding: 8px; border: 1px solid var(--line); border-radius: 6px; overflow: auto; max-height: 200px; font-size: 12px; white-space: pre; }
