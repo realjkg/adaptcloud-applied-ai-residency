@@ -24,7 +24,7 @@ const deny = (code, extra = {}) => ({ ok: false, code, ...extra });
 export const PLAN_TTL_MS = 30 * 60_000;
 const TERMINAL = new Set(["completed", "failed", "uncertain", "rejected", "stale", "expired"]);
 
-export function createOperations({ resolver, policy = denyAllPolicy, adapters, adapterFor = (t) => adapters?.[t.vendor], audit, now = () => new Date(), killSwitch = () => false, planTtlMs = PLAN_TTL_MS, liveAuthorized = () => true, transportKind, file = null }) {
+export function createOperations({ resolver, policy = denyAllPolicy, adapters, adapterFor = (t) => adapters?.[t.vendor], audit, now = () => new Date(), killSwitch = () => false, planTtlMs = PLAN_TTL_MS, liveAuthorized = () => true, transportKind, file = null, journal = null }) {
   const ops = new Map();
   const inflight = new Map();
   let saving = Promise.resolve();
@@ -162,7 +162,7 @@ export function createOperations({ resolver, policy = denyAllPolicy, adapters, a
         await save();
         await audit.record({ event: "operation.executing", operation: id, actor: user.subject, digest: op.planDigest });
         let result;
-        try { result = await r.adapter.execute(op.plan, { params: op.params, changeType: op.changeType, target: r.target, onJobQueued: async (jobId) => { op.jobId = jobId; await save(); await audit.record({ event: "operation.commit_queued", operation: id, actor: user.subject, job: jobId }); } }); } catch { result = { outcome: "uncertain", reason: "executor_error" }; }
+        try { result = await r.adapter.execute(op.plan, { params: op.params, changeType: op.changeType, target: r.target, recordCommitIntent: journal ? () => journal.recordIntent({ id, targetFingerprint: op.binding.fingerprint, planDigest: op.planDigest }) : undefined, onJobQueued: async (jobId) => { op.jobId = jobId; if (journal) await journal.recordJob(id, jobId).catch(() => {}); await save(); await audit.record({ event: "operation.commit_queued", operation: id, actor: user.subject, job: jobId }); } }); } catch { result = { outcome: "uncertain", reason: "executor_error" }; }
         op.result = result;
         op.status = result.outcome === "verified" ? "completed" : result.outcome === "failed" ? "failed" : "uncertain";
         await save();
@@ -171,6 +171,37 @@ export function createOperations({ resolver, policy = denyAllPolicy, adapters, a
       })();
       inflight.set(id, run);
       try { return await run; } finally { inflight.delete(id); }
+    },
+
+    /**
+     * Settles an uncertain Palo Alto commit from the durable journal, without resubmitting anything. The journal says
+     * whether a commit was ever about to be submitted and whether a job id was received. Read-only on the vendor.
+     */
+    async reconcile(user, id) {
+      await ready;
+      const op = ops.get(id);
+      if (!op || !visible(user, op)) return deny("not_found");
+      if (!can(user.roles, "operation:execute")) return deny("forbidden");
+      if (op.status !== "uncertain") return deny("not_uncertain");
+      if (!journal) return deny("no_commit_journal");
+      let rec;
+      try { rec = await journal.recover({ id, targetFingerprint: op.binding.fingerprint, planDigest: op.planDigest }); } catch (error) { return deny(String(error.message).replace(/[^a-z_]/g, "").slice(0, 40)); }
+      await audit.record({ event: "operation.reconcile", operation: id, actor: user.subject, journal: rec.state });
+      if (rec.state === "no_intent") return deny("no_commit_was_submitted", { operation: view(op) });
+      if (rec.state === "submission_uncertain") return deny("submission_uncertain_manual_review", { operation: view(op) });
+      // Same re-authorization as execution: the alias must still resolve to the approved scope and the principal must still have access.
+      let target;
+      try { target = recheckBoundTarget(resolver, policy, { principalId: user.subject, contextId: op.contextId, binding: op.binding }); } catch (error) { return deny(codeOf(error)); }
+      const ad = adapterAndDef(target, op.changeType);
+      if (!ad?.adapter.finishFromJob) return deny("target_not_available");
+      try { await ad.adapter.verifyScope?.(target); } catch { return deny("scope_mismatch"); }
+      let result;
+      try { result = await ad.adapter.finishFromJob(op.plan, { params: op.params, changeType: op.changeType, target, jobId: rec.jobId }); } catch { result = { outcome: "uncertain", reason: "reconcile_failed" }; }
+      op.result = { ...result, reconciled: true };
+      op.status = result.outcome === "verified" ? "completed" : result.outcome === "failed" ? "failed" : "uncertain";
+      await save();
+      await audit.record({ event: "operation.reconciled", operation: id, actor: user.subject, outcome: op.status, ...(result.reason ? { reason: result.reason } : {}) });
+      return { ok: op.status === "completed", operation: view(op) };
     },
 
     /** A rollback is a new change: its own plan, its own approval. It is refused if the target no longer holds what this system created. */

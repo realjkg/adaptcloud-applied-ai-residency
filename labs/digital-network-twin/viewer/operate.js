@@ -180,6 +180,7 @@ export async function startOperate({ onSnapshots, say }) {
         item.append(button("Reject", () => act(() => api("POST", `/api/operations/${o.id}/decision`, { decision: "reject" }), "Rejected.")));
       }
       if (o.status === "approved" && perms.has("operation:execute")) item.append(button("Execute", async () => { await act(() => api("POST", `/api/operations/${o.id}/execute`, {}), "Executed and verified."); }));
+      if (o.status === "uncertain" && perms.has("operation:execute")) item.append(button("Check commit status", () => act(() => api("POST", `/api/operations/${o.id}/reconcile`, {}), "Checked from the commit journal. Nothing was submitted again.")));
       if (["completed", "uncertain"].includes(o.status) && perms.has("operation:request")) item.append(button("Plan a rollback", () => act(() => api("POST", `/api/operations/${o.id}/rollback`, {}), "A rollback was planned. It needs its own approval.")));
       list.append(item);
     }

@@ -75,6 +75,7 @@ Two server-side registries: synthetic targets (`server/simulator-targets.mjs`, r
 - **Access.** A deny-by-default policy is checked at plan time, for the approver, and again at execution. Learner labs have members and aliases; live targets list exact principals per alias. A principal outside a lab cannot list, approve, execute, or roll back its operations, and an alias they cannot use answers exactly like one that does not exist.
 - **Live inventory checks.** A live registry refuses fixture aliases, fixture scopes, fixture Meraki networks, and placeholder (`.example`) hosts, and every live target must be a disposable lab target with a serial or organization, and an access list. Panorama device groups are refused: this is standalone-firewall scope.
 - **Device verification.** Before staging, and again at execution, the adapter checks the device against inventory: Palo Alto reads the firewall serial; Meraki checks the network belongs to the organization and contains the appliance serial. A mismatch refuses the operation.
+- **Commit journal.** For Palo Alto, `server/commit-journal.mjs` makes the commit intent durable before the commit is sent, and the job id durable as soon as it is received. Each record is bound to the target fingerprint and plan digest and can be written only once, so a retry or restart cannot submit a second commit. If an intent exists but the commit was not completed, the operation is uncertain. `POST /api/operations/:id/reconcile` (the "Check commit status" button) settles it read-only from the journal: no intent means nothing was submitted; an intent without a job id needs a person; a known job id is looked up once and the running configuration is read back. Reconcile re-checks the target and access like execution does.
 - Live SD-WAN is never implied by a firewall capability: a live target that lists it is refused at load.
 
 ## Learner deployments
@@ -92,6 +93,7 @@ binds to 127.0.0.1. Run it inside the customer's network, not on a public host.
 
 ## Known limits
 
+- The commit journal needs a persistent volume that supports hard links and fsync. Operations whose commit intent was recorded but never confirmed need a person: no automatic resubmission exists.
 - Pending config-change requests live in memory and are lost on restart. Target operations are saved to a file, and one found mid-write becomes uncertain. The audit log is durable.
 - Sessions are in memory, so one instance only and a restart signs everyone out.
 - No sign-in rate limiting, no refresh of provider keys beyond a ten-minute cache, no group-claim paging.

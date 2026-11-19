@@ -3,7 +3,7 @@
 // data, and fixed personas, and binds to 127.0.0.1. Live mode needs a settings file, OpenID Connect, credentials in the
 // environment, and the recorded authorization; see docs/CONTROL_PLANE.md. NOT TESTED AGAINST REAL SYSTEMS.
 
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { collectSnapshot } from "../tools/collect/collector.mjs";
@@ -13,6 +13,7 @@ import { createLiveTransport } from "../tools/live/transport.mjs";
 import { createMerakiAdapter } from "./adapters/meraki.mjs";
 import { createPaloAltoAdapter } from "./adapters/paloalto.mjs";
 import { createApp } from "./app.mjs";
+import { createCommitJournal } from "./commit-journal.mjs";
 import { createAudit } from "./audit.mjs";
 import { createChangeService } from "./changes.mjs";
 import { liveWriteAuthorized } from "./live-authorization.mjs";
@@ -61,7 +62,10 @@ export async function createLiveService({ settings, env = process.env, fetchImpl
   // Live inventory: separate from the synthetic fixtures, which it may not reuse. Access is listed per alias in settings.
   const resolver = createTargetResolver({ mode: "live", targets: loaded.targets, fixtures: SIMULATOR_TARGETS });
   const policy = createLivePolicy(Object.fromEntries([...loaded.targets.values()].map((t) => [t.id, t.access.principals])));
-  const operations = createOperations({ resolver, policy, adapterFor, audit, now, killSwitch: killSwitch.get, transportKind: "live", liveAuthorized: () => liveWriteAuthorized(settings.policy), file: join(settings.dataDir, "operations.json") });
+  // Durable commit intent and job ids, on the same persistent volume as the operations file.
+  await mkdir(join(settings.dataDir, "commit-journal"), { recursive: true });
+  const journal = createCommitJournal(join(settings.dataDir, "commit-journal"));
+  const operations = createOperations({ resolver, policy, journal, adapterFor, audit, now, killSwitch: killSwitch.get, transportKind: "live", liveAuthorized: () => liveWriteAuthorized(settings.policy), file: join(settings.dataDir, "operations.json") });
   let n = 0;
   const scheduler = createScheduler({
     intervalMs: settings.intervalMs ?? 3_600_000, now,

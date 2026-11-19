@@ -1,11 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync as _readFileSync, writeFileSync as _writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createGuardedHttp } from "../tools/live/guarded-http.mjs";
 import { createOperations } from "../server/operations.mjs";
 import { createAudit } from "../server/audit.mjs";
+import { createCommitJournal } from "../server/commit-journal.mjs";
 import { createPaloAltoAdapter } from "../server/adapters/paloalto.mjs";
 import { createMerakiAdapter } from "../server/adapters/meraki.mjs";
 import { loadTargets } from "../server/targets.mjs";
@@ -50,7 +51,7 @@ function fakePan({ jobPolls = 1, jobResult = "OK", pending = [], loseRestReply =
         f.commitCmd = p.get("cmd");
         if (garbleCommitReply) { f.running = new Map(f.candidate); f.pending = []; return xml("<html>gateway</html>"); }
         if (commitNoChanges) { f.running = new Map(f.candidate); f.pending = []; return xml(`<response status="success" code="19"><msg>There are no changes to commit.</msg></response>`); } f.jobs.set("77", 0); f.running = new Map(f.candidate); f.pending = []; if (loseCommitReply) throw new TypeError("socket hang up"); return xml(`<response status="success" code="19"><result><msg><line>Commit job enqueued with jobid 77</line></msg><job>77</job></result></response>`); }
-      if (p.get("type") === "op" && p.get("cmd").includes("<jobs>")) { if (firstPoll && f.jobs.get("77") === 0) firstPoll(); const n = f.jobs.get("77") + 1; f.jobs.set("77", n); if (wrongJobId) return xml(`<response status="success"><result><job><id>999</id><status>FIN</status><result>OK</result></job></result></response>`); return n < jobPolls ? xml(`<response status="success"><result><job><id>77</id><status>ACT</status><result>PEND</result></job></result></response>`) : xml(`<response status="success"><result><job><id>77</id><status>FIN</status><result>${jobResult}</result></job></result></response>`); }
+      if (p.get("type") === "op" && p.get("cmd").includes("<jobs>")) { if (firstPoll && f.jobs.get("77") === 0) firstPoll(); const n = f.jobs.get("77") + 1; f.jobs.set("77", n); const pollsNeeded = f.finishJobs ? 0 : jobPolls; if (wrongJobId) return xml(`<response status="success"><result><job><id>999</id><status>FIN</status><result>OK</result></job></result></response>`); return n < pollsNeeded ? xml(`<response status="success"><result><job><id>77</id><status>ACT</status><result>PEND</result></job></result></response>`) : xml(`<response status="success"><result><job><id>77</id><status>FIN</status><result>${jobResult}</result></job></result></response>`); }
       if (p.get("type") === "config" && p.get("action") === "show") {
         const name = /address\/entry\[@name='([^']+)'\]/.exec(p.get("xpath"))?.[1];
         const e = f.running.get(name);
@@ -276,4 +277,98 @@ test("Palo Alto live: a job reply for a different job id is not accepted as conf
   const { done } = await run(panOps(f), { targetId: "lab-fw-1", changeType: "address-object.create", params: ADDR });
   assert.equal(done.operation.status, "uncertain");
   assert.equal(done.operation.result.reason, "commit_job_not_finished");
+});
+
+// ---- commit journal: durable intent and job id, recovery without resubmitting
+function journaled(f, { principals = ["u-op", "u-ap"] } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), "twin-jr-"));
+  mkdirSync(join(dir, "journal"));
+  const journal = createCommitJournal(join(dir, "journal"));
+  const file = join(dir, "ops.json");
+  const http = createGuardedHttp({ allowedHosts: ["fw.lab.corp.test"], fetchImpl: f.fetch });
+  const adapter = createPaloAltoAdapter({ http, target: PAN_T, env: ENV, sleep: async () => {}, pollMs: 0, maxPolls: 2 });
+  const make = () => createOperations({ resolver: createTargetResolver({ mode: "live", targets: new Map([[PAN_T.id, PAN_T]]), fixtures: SIMULATOR_TARGETS }), policy: createLivePolicy({ [PAN_T.id]: principals }), adapters: { paloalto: adapter }, audit: createAudit({ file: join(dir, "a.jsonl") }), transportKind: "live", liveAuthorized: () => true, file, journal });
+  return { journal, file, dir, make, ops: make() };
+}
+const planned = async (j) => {
+  const r = await j.ops.request(OP, { targetId: "lab-fw-1", changeType: "address-object.create", params: ADDR });
+  await j.ops.decide(AP, r.operation.id, { decision: "approve", planDigest: r.operation.planDigest });
+  return r.operation;
+};
+
+test("commit journal: intent is recorded before the commit and the job id after, bound to the fingerprint and plan digest", async () => {
+  const f = fakePan();
+  const j = journaled(f);
+  const op = await planned(j);
+  assert.equal((await j.ops.execute(OP, op.id)).ok, true);
+  const rec = await j.journal.recover({ id: op.id, targetFingerprint: op.targetFingerprint, planDigest: op.planDigest });
+  assert.deepEqual(rec, { state: "job_known", jobId: "77" });
+  assert.equal(f.commits, 1);
+});
+
+test("commit journal: an intent that already exists blocks the commit, so a retry or restart cannot submit twice", async () => {
+  const f = fakePan();
+  const j = journaled(f);
+  const op = await planned(j);
+  await j.journal.recordIntent({ id: op.id, targetFingerprint: op.targetFingerprint, planDigest: op.planDigest });
+  const done = await j.ops.execute(OP, op.id);
+  assert.equal(done.operation.status, "uncertain");
+  assert.equal(done.operation.result.reason, "commit_intent_already_recorded");
+  assert.equal(f.commits ?? 0, 0, "no commit was sent");
+  // Intent but no job: it is unknown whether a commit was submitted, so a person must look. Nothing is resubmitted.
+  const rec = await j.ops.reconcile(OP, op.id);
+  assert.equal(rec.code, "submission_uncertain_manual_review");
+  assert.equal(f.commits ?? 0, 0);
+});
+
+test("commit journal: an unfinished job is reconciled later from the saved job id, without a second commit, even after a restart", async () => {
+  const f = fakePan({ jobPolls: 99 });
+  const j = journaled(f);
+  const op = await planned(j);
+  const first = await j.ops.execute(OP, op.id);
+  assert.equal(first.operation.result.reason, "commit_job_not_finished");
+  assert.equal((await j.ops.reconcile(OP, op.id)).operation.result.reason, "commit_job_not_finished", "still running: stays uncertain");
+  f.finishJobs = true;
+  // Simulate a restart while the operation was still marked executing.
+  const saved = JSON.parse(_readFileSync(j.file, "utf8"));
+  saved[0].status = "executing";
+  _writeFileSync(j.file, JSON.stringify(saved));
+  const restarted = j.make();
+  await restarted.ready;
+  assert.equal(restarted.get(OP, op.id).status, "uncertain");
+  const done = await restarted.reconcile(OP, op.id);
+  assert.equal(done.ok, true, JSON.stringify(done));
+  assert.equal(done.operation.status, "completed");
+  assert.equal(done.operation.result.reconciled, true);
+  assert.equal(f.commits, 1, "the commit was never resubmitted");
+  assert.equal(f.running.size, 1);
+});
+
+test("commit journal: reconcile needs an uncertain operation, a journal binding that still matches, and current access", async () => {
+  const f = fakePan({ jobPolls: 99 });
+  const j = journaled(f);
+  const done = await run(j.ops, { targetId: "lab-fw-1", changeType: "address-object.create", params: { ...ADDR, name: "other" } });
+  assert.equal(done.done.operation.status, "uncertain");
+  assert.equal((await j.ops.reconcile({ ...OP, subject: "stranger" }, done.id)).code, "not_found");
+  assert.equal((await j.ops.reconcile({ ...OP, roles: ["viewer"] }, done.id)).code, "forbidden");
+
+  const ok = fakePan();
+  const j2 = journaled(ok);
+  const op2 = await planned(j2);
+  await j2.ops.execute(OP, op2.id);
+  assert.equal((await j2.ops.reconcile(OP, op2.id)).code, "not_uncertain");
+
+  const f3 = fakePan();
+  const j3 = journaled(f3);
+  const op3 = await planned(j3);
+  await j3.journal.recordIntent({ id: op3.id, targetFingerprint: "a".repeat(64), planDigest: "b".repeat(64) });
+  await j3.ops.execute(OP, op3.id);
+  assert.equal((await j3.ops.reconcile(OP, op3.id)).code, "commit_binding_changed");
+
+  const f4 = fakePan();
+  const j4 = journaled(f4);
+  const op4 = await planned(j4);
+  await j4.ops.execute(OP, op4.id);
+  assert.equal((await j4.journal.recover({ id: op4.id, targetFingerprint: op4.targetFingerprint, planDigest: op4.planDigest })).state, "job_known");
+  assert.equal((await j4.journal.recover({ id: "OP-0000000000", targetFingerprint: op4.targetFingerprint, planDigest: op4.planDigest })).state, "no_intent");
 });

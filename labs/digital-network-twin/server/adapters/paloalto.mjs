@@ -105,6 +105,18 @@ export function createPaloAltoAdapter({ http, target: rawTarget, env, sleep = sl
     vendor: "paloalto",
     changeTypes: CHANGE_TYPES,
     submitPartialCommit, readCommitJob,
+    /** Settles a known commit job without submitting anything: one job lookup, then the running-config read-back. */
+    async finishFromJob(plan, { params, changeType, jobId }) {
+      const name = params.name;
+      const creating = changeType === "address-object.create";
+      const o = plan.proposed.object;
+      const job = await readCommitJob(jobId);
+      if (job.status !== "FIN") return { outcome: "uncertain", reason: "commit_job_not_finished", stage: "commit", jobId };
+      if (job.result !== "OK") return { outcome: "failed", reason: `commit_job_${String(job.result).toLowerCase().replace(/[^a-z]/g, "").slice(0, 20)}`, stage: "commit", jobId, candidateLeftInPlace: true };
+      const running = await runningObject(name);
+      const ok = creating ? running !== null && running.ipNetmask === o.ipNetmask && running.description === o.description : running === null;
+      return ok ? { outcome: "verified", stage: "verify", jobId } : { outcome: "uncertain", reason: "running_differs_after_commit", stage: "verify", jobId };
+    },
     /** The device that answers must be the one in inventory, checked before anything is staged. */
     async verifyScope() {
       const expected = target.scope?.firewallSerial;
@@ -139,7 +151,16 @@ export function createPaloAltoAdapter({ http, target: rawTarget, env, sleep = sl
       try { pending = await pendingList(); } catch { return { outcome: "uncertain", reason: "pending_changes_unreadable", stage: "pre-commit", candidateLeftInPlace: true }; }
       if (pending.length === 0 || pending.some((m) => !m.includes(`'${name}'`))) return { outcome: "failed", reason: "unrelated_pending_changes_cannot_be_excluded", stage: "pre-commit", candidateLeftInPlace: true };
 
-      // Step 4: the commit, limited to the API administrator. A reply that cannot be read is never answered by sending it again.
+      // Step 4: the commit, limited to the API administrator. The intent is made durable first and can be recorded only once,
+      // so a retry or a restart can never submit a second commit for this operation. A reply that cannot be read is never
+      // answered by sending it again.
+      if (ctx.recordCommitIntent) {
+        try { await ctx.recordCommitIntent(); } catch (error) {
+          return error?.code === "EEXIST"
+            ? { outcome: "uncertain", reason: "commit_intent_already_recorded", stage: "commit", candidateLeftInPlace: true }
+            : { outcome: "failed", reason: "commit_intent_not_recorded", stage: "commit", candidateLeftInPlace: true };
+        }
+      }
       let jobId = null;
       try {
         ({ jobId } = await submitPartialCommit(target.commitAdmin));

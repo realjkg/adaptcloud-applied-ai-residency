@@ -140,6 +140,7 @@ export function createApp({ mode, origin, secureCookies = false, sessions, oidc 
         if (req.method === "POST" && parts.length === 2) { const r = await operations.request(user, body); return json(code(r, 201), r); }
         if (req.method === "POST" && OPID.test(parts[2] ?? "") && parts[3] === "decision") { const r = await operations.decide(user, parts[2], body); return json(code(r), r); }
         if (req.method === "POST" && OPID.test(parts[2] ?? "") && parts[3] === "execute") { const r = await operations.execute(user, parts[2]); return json(code(r), r); }
+        if (req.method === "POST" && OPID.test(parts[2] ?? "") && parts[3] === "reconcile") { const r = await operations.reconcile(user, parts[2]); return json(code(r), r); }
         if (req.method === "POST" && OPID.test(parts[2] ?? "") && parts[3] === "rollback") { const r = await operations.rollback(user, parts[2]); return json(code(r, 201), r); }
       }
       if (parts[1] === "audit" && req.method === "GET") {
