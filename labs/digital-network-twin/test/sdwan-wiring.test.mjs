@@ -117,7 +117,8 @@ test('SD-WAN UI config, failover, failback, validation, reset, logout and relogi
   const me = await (await context.request.get(f.origin + '/api/me')).json();
   const logout = await context.request.post(f.origin + '/auth/logout', { headers: { origin: f.origin, 'x-csrf-token': me.csrf }, data: {} });
   assert.equal(logout.status(), 200);
-  await page.evaluate(() => document.querySelector('#operate-root').replaceChildren());
+  // The root is already empty here, and replaceChildren() on an empty node records no mutation, so give the observer a real change.
+  await page.evaluate(() => document.querySelector('#operate-root').replaceChildren(document.createElement('span')));
   await page.locator('#sdwan').waitFor({ state: 'hidden' });
   await login('bob'); assert.equal(await field('preferred').inputValue(), 'wan1');
   await run('wan1', 'preferred_healthy');

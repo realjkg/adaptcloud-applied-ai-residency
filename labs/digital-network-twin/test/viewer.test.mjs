@@ -111,6 +111,7 @@ test("the viewer server is read-only, local, and limited to its own files", asyn
     assert.match(page.headers.get("content-security-policy"), /default-src 'none'/);
     assert.equal(page.headers.get("x-content-type-options"), "nosniff");
     assert.equal((await fetch(`${base}/snapshots/SYNTH-SNAP-003.json`)).status, 200);
+    for (const asset of ["app.js", "operate.js", "sdwan.js", "viewer.css"]) assert.equal((await fetch(`${base}/${asset}`)).status, 200, asset);
     for (const path of ["/snapshots/..%2Fconfig%2Ftwin-config.json", "/snapshots/%2e%2e/package.json", "/package.json", "/../package.json", "/snapshots/x.txt", "/serve.mjs"]) {
       assert.equal((await fetch(`${base}${path}`)).status, 404, path);
     }
@@ -121,7 +122,7 @@ test("the viewer server is read-only, local, and limited to its own files", asyn
 
 test("viewer sources avoid markup sinks, network calls to other hosts, and inline code", () => {
   const forbidden = [/innerHTML/, /outerHTML/, /insertAdjacentHTML/, /document\.write/, /\beval\s*\(/, /new Function/, /localStorage|sessionStorage/, /XMLHttpRequest|WebSocket|sendBeacon/, /https?:\/\//];
-  for (const name of ["app.js", "operate.js", "render.js", "layout.js", "snapshot.js", "drawio.js"]) {
+  for (const name of ["app.js", "operate.js", "sdwan.js", "render.js", "layout.js", "snapshot.js", "drawio.js"]) {
     const src = readFileSync(join(root, "viewer", name), "utf8").replace(/\/\/.*$/gm, "").replace(/"http:\/\/www\.w3\.org\/2000\/svg"/g, "");
     for (const re of forbidden) assert.ok(!re.test(src), `${name} matches ${re}`);
   }

@@ -12,9 +12,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { can, permissionsFor, rolesFromGroups } from "./roles.mjs";
 import { parseCookies } from "./sessions.mjs";
+import { evaluateSdwan } from "./adapters/sdwan-model.mjs";
 
 const VIEWER = join(dirname(fileURLToPath(import.meta.url)), "..", "viewer");
-const ASSETS = { "index.html": "text/html; charset=utf-8", "app.js": "text/javascript; charset=utf-8", "operate.js": "text/javascript; charset=utf-8", "render.js": "text/javascript; charset=utf-8", "layout.js": "text/javascript; charset=utf-8", "snapshot.js": "text/javascript; charset=utf-8", "drawio.js": "text/javascript; charset=utf-8", "viewer.css": "text/css; charset=utf-8" };
+const ASSETS = { "sdwan.js": "text/javascript; charset=utf-8", "index.html": "text/html; charset=utf-8", "app.js": "text/javascript; charset=utf-8", "operate.js": "text/javascript; charset=utf-8", "render.js": "text/javascript; charset=utf-8", "layout.js": "text/javascript; charset=utf-8", "snapshot.js": "text/javascript; charset=utf-8", "drawio.js": "text/javascript; charset=utf-8", "viewer.css": "text/css; charset=utf-8" };
 const HEADERS = {
   "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
   "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer", "Cache-Control": "no-store"
@@ -101,6 +102,32 @@ export function createApp({ mode, origin, secureCookies = false, sessions, oidc 
       const body = writes ? await readJson(req, origin) : null;
 
       if (req.method === "GET" && parts[1] === "me") return json(200, { user: { name: user.name, roles: user.roles }, permissions: permissionsFor(user.roles), csrf: session.csrf, mode, killSwitch: killSwitch.get() });
+
+      if (req.method === "POST" && url.pathname === "/api/sdwan/evaluate") {
+        if (!labScoped || !user.labId) return json(404, { error: "not_found" });
+        if (!(await need("operation:read"))) return;
+
+        const { policy, observations, previous } = body;
+        const isObject = value =>
+          value !== null && typeof value === "object" && !Array.isArray(value);
+
+        if (!isObject(policy) || !isObject(observations) ||
+            ["wan1", "wan2"].some(path => observations[path] != null && !isObject(observations[path]))) {
+          return json(422, { error: "invalid_sdwan_input" });
+        }
+
+        let result;
+        try {
+          result = evaluateSdwan({ policy, observations, previous });
+        } catch (error) {
+          if (![
+            "invalid_uplinks", "invalid_failback_policy", "invalid_previous_path",
+            "invalid_threshold", "invalid_observation"
+          ].includes(error?.message)) throw error;
+          return json(422, { error: error.message });
+        }
+        return json(200, result);
+      }
 
       if (parts[1] === "snapshots") {
         if (!(await need("snapshot:read"))) return;
