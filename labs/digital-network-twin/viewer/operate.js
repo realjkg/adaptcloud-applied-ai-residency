@@ -168,7 +168,7 @@ export async function startOperate({ onSnapshots, say }) {
     for (const o of state.operations) {
       const item = h("div", { class: "change", "data-operation": o.id });
       item.append(h("p", {}, `${o.id}: ${o.changeType} on ${o.targetId}${o.rollbackOf ? ` (rollback of ${o.rollbackOf})` : ""}`));
-      item.append(h("p", { class: "note" }, `${o.status}. Requested by ${o.requester}${o.approver ? `, approved by ${o.approver}` : ""}. Plan digest ${short(o.planDigest)}. Expires ${o.expiresAt}. ${o.transport} transport.${o.result ? ` Result: ${o.result.outcome}${o.result.reason ? ` (${o.result.reason})` : ""}${o.result.candidateLeftInPlace ? ". A candidate edit was left in place for review" : ""}.` : ""}`));
+      item.append(h("p", { class: "note" }, `${o.status}. Requested by ${o.requester}${o.approver ? `, approved by ${o.approver}` : ""}. Plan digest ${short(o.planDigest)}. Expires ${o.expiresAt}. ${o.transport} transport.${o.result ? ` Result: ${o.result.outcome}${o.result.reason ? ` (${o.result.reason})` : ""}${o.result.candidateLeftInPlace || o.result.candidateMayExist ? ". A candidate edit may be staged on the firewall and needs review" : ""}.` : ""}`));
       if (o.commitScope) item.append(h("p", { class: "note" }, `Commit scope: ${o.commitScope.kind} commit by ${o.commitScope.byAdmin} in ${o.commitScope.vsys}, objects ${o.commitScope.objects.join(", ")}. Pending changes before: ${o.commitScope.pendingBefore}.`));
       const diff = h("pre", { class: "diff", "aria-label": "Dry-run diff" });
       diff.textContent = [...o.diff.before.map((l) => `${l.change === "removed" ? "-" : " "} ${l.line}`), "---", ...o.diff.after.map((l) => `${l.change === "added" ? "+" : " "} ${l.line}`)].join("\n") + (o.diff.unrelatedRulesUnchanged === true ? "\nUnrelated rules unchanged." : "");
@@ -180,7 +180,14 @@ export async function startOperate({ onSnapshots, say }) {
         item.append(button("Reject", () => act(() => api("POST", `/api/operations/${o.id}/decision`, { decision: "reject" }), "Rejected.")));
       }
       if (o.status === "approved" && perms.has("operation:execute")) item.append(button("Execute", async () => { await act(() => api("POST", `/api/operations/${o.id}/execute`, {}), "Executed and verified."); }));
-      if (o.status === "uncertain" && perms.has("operation:execute")) item.append(button("Check commit status", () => act(() => api("POST", `/api/operations/${o.id}/reconcile`, {}), "Checked from the commit journal. Nothing was submitted again.")));
+      if (o.status === "uncertain" && perms.has("operation:execute")) item.append(button("Check commit status", async () => {
+        const r = await api("POST", `/api/operations/${o.id}/reconcile`, {});
+        if (r.json?.code === "no_commit_was_submitted") say("No commit was submitted. That does not mean no change was made: a candidate edit may still be staged on the firewall. Inspect or clear it there.", true);
+        else if (r.json?.code === "submission_uncertain_manual_review") say("A commit may have been submitted but its job id was never saved. Check the firewall's job list; nothing will be sent again.", true);
+        else if (r.ok) say("Checked from the commit journal. Nothing was submitted again.");
+        else say(`Refused: ${r.json?.code ?? r.json?.error ?? r.status}.`, true);
+        await refresh();
+      }));
       if (["completed", "uncertain"].includes(o.status) && perms.has("operation:request")) item.append(button("Plan a rollback", () => act(() => api("POST", `/api/operations/${o.id}/rollback`, {}), "A rollback was planned. It needs its own approval.")));
       list.append(item);
     }

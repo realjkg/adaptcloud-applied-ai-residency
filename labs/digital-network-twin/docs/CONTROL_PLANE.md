@@ -76,6 +76,8 @@ Two server-side registries: synthetic targets (`server/simulator-targets.mjs`, r
 - **Live inventory checks.** A live registry refuses fixture aliases, fixture scopes, fixture Meraki networks, and placeholder (`.example`) hosts, and every live target must be a disposable lab target with a serial or organization, and an access list. Panorama device groups are refused: this is standalone-firewall scope.
 - **Device verification.** Before staging, and again at execution, the adapter checks the device against inventory: Palo Alto reads the firewall serial; Meraki checks the network belongs to the organization and contains the appliance serial. A mismatch refuses the operation.
 - **Commit journal.** For Palo Alto, `server/commit-journal.mjs` makes the commit intent durable before the commit is sent, and the job id durable as soon as it is received. Each record is bound to the target fingerprint and plan digest and can be written only once, so a retry or restart cannot submit a second commit. If an intent exists but the commit was not completed, the operation is uncertain. `POST /api/operations/:id/reconcile` (the "Check commit status" button) settles it read-only from the journal: no intent means nothing was submitted; an intent without a job id needs a person; a known job id is looked up once and the running configuration is read back. Reconcile re-checks the target and access like execution does.
+  - **If the job id cannot be saved.** The commit was accepted but nothing durable says so. The operation stops as `uncertain` with reason `commit_job_not_recorded`, the job id is shown in the result and audit log so a person can check the firewall, and polling and completion are not reported. A retry returns the existing operation, and reconcile answers "intent without job id: needs a person". Nothing is sent to the firewall again.
+  - **No intent is not a clean candidate.** "No commit was submitted" means the journaled path never reached the commit. The candidate edit happens earlier, so an operation that stopped there may still have a staged change. The result carries `candidateMayExist`, reconcile answers `candidate_edit_may_be_staged`, and the page says to inspect or clear the candidate on the firewall.
 - Live SD-WAN is never implied by a firewall capability: a live target that lists it is refused at load.
 
 ## Learner deployments
@@ -90,6 +92,17 @@ the recorded authorization and exact host allowlists, and a `collector` with `en
 per-vendor `hosts` plus identifiers. Vendor credentials come from the environment: `CLOUDFLARE_API_TOKEN`,
 `BIGIP_USERNAME`, `BIGIP_PASSWORD`, `PANOS_API_KEY`, `MERAKI_API_KEY`, and the per-target variables named in `targets[].credentialEnv`. Put a TLS-terminating proxy in front; the service
 binds to 127.0.0.1. Run it inside the customer's network, not on a public host.
+
+## Verifying the journal volume
+
+The journal's guarantees (a record written once, durable before use) depend on the volume. Before an approved appliance round trip, prove the volume on the real deployment:
+
+1. Mount the chosen persistent volume at the journal path (a Fargate task can use an EFS file system or an EBS volume; use whichever the deployment chose).
+2. On the first task: `npm run journal:volume-check -- write --dir=<mount path>`. It exercises hard links, fsync, the write-once refusal, and leaves a marker. It uses the real journal and makes no vendor call.
+3. Stop that task and start a replacement mounted on the same volume. Do not just restart a process inside the task.
+4. On the replacement: `npm run journal:volume-check -- verify --dir=<mount path>`. It must find the marker, recover the intent and job id, and still refuse a second intent.
+
+This has **not** been run on a real volume. The local tests prove the script's logic on a temporary directory, not that any storage behaves. Passing it proves the volume, not the firewall's response shapes.
 
 ## Known limits
 

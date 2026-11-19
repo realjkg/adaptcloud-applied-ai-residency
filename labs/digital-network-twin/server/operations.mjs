@@ -38,7 +38,7 @@ export function createOperations({ resolver, policy = denyAllPolicy, adapters, a
     if (!file) return;
     try {
       for (const op of JSON.parse(await readFile(file, "utf8"))) {
-        if (op.status === "executing") { op.status = "uncertain"; op.result = { outcome: "uncertain", reason: "service_restarted_during_write" }; }
+        if (op.status === "executing") { op.status = "uncertain"; op.result = { outcome: "uncertain", reason: "service_restarted_during_write", ...(op.vendor === "paloalto" ? { candidateMayExist: true } : {}) }; }
         ops.set(op.id, op);
       }
     } catch { /* first run */ }
@@ -165,8 +165,17 @@ export function createOperations({ resolver, policy = denyAllPolicy, adapters, a
         // One set of hooks per execution: intent, then job id, in that order and at most once.
         const hooks = journal ? createCommitHooks({ journal, id, targetFingerprint: op.binding.fingerprint, planDigest: op.planDigest }) : null;
         let result;
-        try { result = await r.adapter.execute(op.plan, { params: op.params, changeType: op.changeType, target: r.target, recordCommitIntent: hooks ? () => hooks.beforeCommit() : undefined, onJobQueued: async (jobId) => { op.jobId = jobId; if (hooks) await hooks.onJobQueued(jobId).catch(() => {}); await save(); await audit.record({ event: "operation.commit_queued", operation: id, actor: user.subject, job: jobId }); } }); } catch { result = { outcome: "uncertain", reason: "executor_error" }; }
-        op.result = result;
+        try { result = await r.adapter.execute(op.plan, { params: op.params, changeType: op.changeType, target: r.target, recordCommitIntent: hooks ? () => hooks.beforeCommit() : undefined, onJobQueued: async (jobId) => {
+          // The job id must be durable before anything relies on it. If the journal cannot save it, say so and let the
+          // adapter stop: the commit was accepted, so the outcome is uncertain and nothing may be sent again.
+          op.jobId = jobId;
+          let failure = null;
+          if (hooks) { try { await hooks.onJobQueued(jobId); } catch (error) { failure = error; } }
+          await save();
+          await audit.record({ event: failure ? "operation.commit_queued_unrecorded" : "operation.commit_queued", operation: id, actor: user.subject, job: jobId });
+          if (failure) throw failure;
+        } }); } catch { result = { outcome: "uncertain", reason: "executor_error" }; }
+        op.result = op.vendor === "paloalto" && result.outcome !== "verified" ? { candidateMayExist: true, ...result } : result;
         op.status = result.outcome === "verified" ? "completed" : result.outcome === "failed" ? "failed" : "uncertain";
         await save();
         await audit.record({ event: "operation.executed", operation: id, actor: user.subject, outcome: op.status, ...(result.reason ? { reason: result.reason } : {}), ...(result.stage ? { stage: result.stage } : {}), ...(result.candidateLeftInPlace ? { candidateLeftInPlace: true } : {}) });
@@ -190,7 +199,9 @@ export function createOperations({ resolver, policy = denyAllPolicy, adapters, a
       let rec;
       try { rec = await journal.recover({ id, targetFingerprint: op.binding.fingerprint, planDigest: op.planDigest }); } catch (error) { return deny(String(error.message).replace(/[^a-z_]/g, "").slice(0, 40)); }
       await audit.record({ event: "operation.reconcile", operation: id, actor: user.subject, journal: rec.state });
-      if (rec.state === "no_intent") return deny("no_commit_was_submitted", { operation: view(op) });
+      // No intent means the journaled path never reached commit submission. It does not mean nothing changed: the candidate
+      // edit happens earlier and may still be staged on the firewall.
+      if (rec.state === "no_intent") return deny("no_commit_was_submitted", { note: op.vendor === "paloalto" ? "candidate_edit_may_be_staged" : undefined, operation: view(op) });
       if (rec.state === "submission_uncertain") return deny("submission_uncertain_manual_review", { operation: view(op) });
       // Same re-authorization as execution: the alias must still resolve to the approved scope and the principal must still have access.
       let target;

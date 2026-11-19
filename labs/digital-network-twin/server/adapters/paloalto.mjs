@@ -177,7 +177,8 @@ export function createPaloAltoAdapter({ http, target: rawTarget, env, sleep = sl
       // Step 5: persist the job id before polling, then poll to completion. Queued and active are not success.
       // No job means PAN-OS reported nothing to commit; the read-back below still decides the outcome.
       if (jobId !== null) {
-        try { await ctx.onJobQueued?.(jobId); } catch { /* recording the id must not hide a queued commit */ }
+        // The commit was accepted. If its job id cannot be made durable, stop here: nothing downstream may call this complete.
+        try { await ctx.onJobQueued?.(jobId); } catch { return { outcome: "uncertain", reason: "commit_job_not_recorded", stage: "commit", jobId, candidateLeftInPlace: true }; }
         let result = null;
         for (let i = 0; i < maxPolls; i += 1) {
           try {

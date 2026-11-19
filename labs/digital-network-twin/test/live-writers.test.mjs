@@ -280,15 +280,15 @@ test("Palo Alto live: a job reply for a different job id is not accepted as conf
 });
 
 // ---- commit journal: durable intent and job id, recovery without resubmitting
-function journaled(f, { principals = ["u-op", "u-ap"] } = {}) {
+function journaled(f, { principals = ["u-op", "u-ap"], failJobRecording = false } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "twin-jr-"));
   mkdirSync(join(dir, "journal"));
   const journal = createCommitJournal(join(dir, "journal"));
   const file = join(dir, "ops.json");
   const http = createGuardedHttp({ allowedHosts: ["fw.lab.corp.test"], fetchImpl: f.fetch });
   const adapter = createPaloAltoAdapter({ http, target: PAN_T, env: ENV, sleep: async () => {}, pollMs: 0, maxPolls: 2 });
-  const make = () => createOperations({ resolver: createTargetResolver({ mode: "live", targets: new Map([[PAN_T.id, PAN_T]]), fixtures: SIMULATOR_TARGETS }), policy: createLivePolicy({ [PAN_T.id]: principals }), adapters: { paloalto: adapter }, audit: createAudit({ file: join(dir, "a.jsonl") }), transportKind: "live", liveAuthorized: () => true, file, journal });
-  return { journal, file, dir, make, ops: make() };
+  const make = (journalOverride = journal) => createOperations({ resolver: createTargetResolver({ mode: "live", targets: new Map([[PAN_T.id, PAN_T]]), fixtures: SIMULATOR_TARGETS }), policy: createLivePolicy({ [PAN_T.id]: principals }), adapters: { paloalto: adapter }, audit: createAudit({ file: join(dir, "a.jsonl") }), transportKind: "live", liveAuthorized: () => true, file, journal: journalOverride });
+  return { journal, file, dir, make, ops: make(failJobRecording ? { ...journal, recordJob: async () => { throw new Error("disk full"); } } : journal) };
 }
 const planned = async (j) => {
   const r = await j.ops.request(OP, { targetId: "lab-fw-1", changeType: "address-object.create", params: ADDR });
@@ -371,4 +371,71 @@ test("commit journal: reconcile needs an uncertain operation, a journal binding 
   await j4.ops.execute(OP, op4.id);
   assert.equal((await j4.journal.recover({ id: op4.id, targetFingerprint: op4.targetFingerprint, planDigest: op4.planDigest })).state, "job_known");
   assert.equal((await j4.journal.recover({ id: "OP-0000000000", targetFingerprint: op4.targetFingerprint, planDigest: op4.planDigest })).state, "no_intent");
+});
+
+async function readAudit(j) { return _readFileSync(join(j.dir, "a.jsonl"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)); }
+const writes = (f) => f.calls.filter((c) => c.startsWith("POST") || c.startsWith("DELETE")).length;
+
+test("commit journal: when the job id cannot be saved the result is uncertain, and neither a restart, a retry, nor reconcile sends anything again", async () => {
+  for (const restartWhileExecuting of [false, true]) {
+    const f = fakePan();
+    const j = journaled(f, { failJobRecording: true });
+    const op = await planned(j);
+    const done = await j.ops.execute(OP, op.id);
+    // The fake appliance accepted the commit; the journal could not save its job id.
+    assert.equal(done.ok, false);
+    assert.equal(done.operation.status, "uncertain");
+    assert.equal(done.operation.result.reason, "commit_job_not_recorded");
+    assert.equal(done.operation.result.jobId, "77", "the id is reported so a person can check the firewall");
+    assert.equal(f.commits, 1);
+    assert.equal(writes(f), 1, "one candidate edit");
+    assert.ok((await readAudit(j)).some((e) => e.event === "operation.commit_queued_unrecorded" && e.job === "77"));
+
+    if (restartWhileExecuting) {
+      const saved = JSON.parse(_readFileSync(j.file, "utf8"));
+      saved[0].status = "executing";
+      _writeFileSync(j.file, JSON.stringify(saved));
+    }
+    const callsBefore = f.calls.length;
+    const restarted = j.make();            // a healthy journal this time
+    await restarted.ready;
+    assert.equal(restarted.get(OP, op.id).status, "uncertain");
+    assert.equal((await restarted.execute(OP, op.id)).existing, true, "a retry returns the existing operation");
+    const rec = await restarted.reconcile(OP, op.id);
+    assert.equal(rec.code, "submission_uncertain_manual_review", "intent exists but no job id was saved");
+    assert.equal(f.calls.length, callsBefore, "no vendor call of any kind was made after the failure");
+    assert.equal(f.commits, 1);
+    assert.equal(writes(f), 1);
+  }
+});
+
+test("a job id the journal cannot save is never treated as completion, even if the job finishes", async () => {
+  const f = fakePan({ jobPolls: 1 });
+  const j = journaled(f, { failJobRecording: true });
+  const op = await planned(j);
+  const done = await j.ops.execute(OP, op.id);
+  assert.notEqual(done.operation.status, "completed");
+  assert.equal(f.running.size, 1, "the firewall did commit");
+  assert.equal(done.operation.result.candidateLeftInPlace, true);
+});
+
+test("no commit intent means no commit was submitted, not that no change was made", async () => {
+  const f = fakePan();
+  const j = journaled(f);
+  const op = await planned(j);
+  // The service stops after approval and the candidate edit, before a commit intent exists.
+  const saved = JSON.parse(_readFileSync(j.file, "utf8"));
+  saved[0].status = "executing";
+  _writeFileSync(j.file, JSON.stringify(saved));
+  const restarted = j.make();
+  await restarted.ready;
+  const view = restarted.get(OP, op.id);
+  assert.equal(view.status, "uncertain");
+  assert.equal(view.result.candidateMayExist, true);
+  const before = f.calls.length;
+  const rec = await restarted.reconcile(OP, op.id);
+  assert.equal(rec.code, "no_commit_was_submitted");
+  assert.equal(rec.note, "candidate_edit_may_be_staged");
+  assert.equal(rec.operation.result.candidateMayExist, true);
+  assert.equal(f.calls.length, before);
 });
