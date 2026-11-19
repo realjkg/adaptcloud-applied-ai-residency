@@ -24,7 +24,7 @@ const PLANNED_ACCESS = {
   cloudflare: { level: "account API token with read permissions on the zone", mode: "read-only" }
 };
 
-export async function buildSnapshot(config, { snapshotId, capturedAt, label }) {
+export async function buildSnapshot(config, { snapshotId, capturedAt, label, source: sourceOverride, synthetic }) {
   const graph = buildGraph(config);
   const topology = {
     groups: graph.groups.map((g) => ({ id: g.id, title: g.title, nodeIds: [...g.nodeIds] })),
@@ -37,8 +37,8 @@ export async function buildSnapshot(config, { snapshotId, capturedAt, label }) {
     snapshotId,
     capturedAt,
     label,
-    synthetic: String(config.twinId ?? "").startsWith("SYNTH-"),
-    source: {
+    synthetic: synthetic ?? String(config.twinId ?? "").startsWith("SYNTH-"),
+    source: sourceOverride ?? {
       kind: "synthetic-config",
       twinId: config.twinId,
       access: [],

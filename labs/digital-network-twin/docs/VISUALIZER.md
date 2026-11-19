@@ -12,9 +12,7 @@ npm scripts only build the sample data and serve the files locally.
 | Synthetic snapshots (a build that grows, then a proposed change) | `snapshots/`, `tools/snapshot.mjs` | Built; `npm run snapshot` regenerates them |
 | Local dev server (127.0.0.1, GET only) | `viewer/serve.mjs` | Built and tested |
 | draw.io export (Lucidchart and Visio through draw.io) | `viewer/drawio.js`, `tools/export-drawio.mjs` | Built and tested; not opened in those tools |
-| Collector that reads vendor admin and account APIs | none | Not built |
-| Sign-in, roles, snapshot storage, scheduling | none | Not built |
-| Any control that changes a vendor | none | Not built, by design |
+| Collector, sign-in and roles, snapshot storage, scheduling, write controls | `server/`, `tools/collect/`, `viewer/operate.js` | Built and tested against fakes only. See `docs/CONTROL_PLANE.md` |
 
 Run it with `npm run snapshot && npm run viewer`, then open the address printed.
 
@@ -111,10 +109,10 @@ diagram would need a parser or plan-JSON reader and a resource-to-shape table pe
 
 ## Roadmap
 
-1. Collector with a read-only adapter per vendor, behind the same guarded HTTP client as provisioning.
-2. Snapshot store with immutable, content-addressed files in the customer's storage.
-3. Sign-in and role-based visibility.
-4. Scheduled capture and drift alerts against the as-built requirements.
+1. Verify the collectors and sign-in against real systems in a lab, then correct the response shapes.
+2. Palo Alto and Meraki write adapters, behind the same gate.
+3. Snapshot storage in the customer's object store with write-once retention; durable change requests.
+4. Drift alerts against the as-built requirements, and vendor icon stencils in the draw.io export.
 
 Rollback: delete `viewer/`, `snapshots/`, `tools/snapshot.mjs`, `test/viewer.test.mjs`, and this file. Nothing else
 depends on them.

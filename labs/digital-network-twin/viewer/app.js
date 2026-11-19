@@ -3,11 +3,12 @@
 // textContent, so a hostile snapshot cannot add markup.
 
 import { snapshotToDrawio } from "./drawio.js";
+import { startOperate } from "./operate.js";
 import { paletteFor, renderTopology, serializeSvg } from "./render.js";
 import { diffSnapshots, isEmptyDiff, topologyDigest, validateSnapshot } from "./snapshot.js";
 
 const $ = (id) => document.getElementById(id);
-const state = { snapshot: null, rawText: "", baseline: null, hidden: new Set(), findingsOnly: false, query: "", selected: null, zoom: 1, autoFit: true, index: [], integrity: null, svg: null };
+const state = { snapshot: null, rawText: "", baseline: null, hidden: new Set(), findingsOnly: false, query: "", selected: null, zoom: 1, autoFit: true, index: [], integrity: null, svg: null, server: false };
 
 /** Small DOM builder. Text goes in as text. */
 function h(tag, attrs = {}, ...children) {
@@ -27,7 +28,9 @@ function say(message, isError = false) {
 const safeName = (s) => s.replace(/[^A-Za-z0-9._-]/g, "-");
 
 async function fetchSnapshot(file) {
-  const response = await fetch(`snapshots/${encodeURIComponent(file)}`, { cache: "no-store", credentials: "omit" });
+  const response = state.server
+    ? await fetch(`/api/snapshots/${encodeURIComponent(file)}`, { cache: "no-store", credentials: "same-origin" })
+    : await fetch(`snapshots/${encodeURIComponent(file)}`, { cache: "no-store", credentials: "omit" });
   if (!response.ok) throw new Error("the snapshot could not be loaded");
   const rawText = await response.text();
   return { rawText, value: JSON.parse(rawText) };
@@ -305,14 +308,30 @@ async function start() {
     }
   });
 
-  try {
-    const response = await fetch("snapshots/index.json", { cache: "no-store", credentials: "omit" });
-    if (!response.ok) throw new Error("no index");
-    const index = await response.json();
-    state.index = Array.isArray(index.snapshots) ? index.snapshots.filter((s) => s && typeof s.file === "string" && /^[A-Za-z0-9._-]+\.json$/.test(s.file) && typeof s.label === "string" && typeof s.capturedAt === "string").sort((a, b) => a.capturedAt.localeCompare(b.capturedAt)) : [];
-  } catch {
-    state.index = [];
+  async function loadIndex() {
+    try {
+      if (state.server) {
+        const response = await fetch("/api/snapshots", { cache: "no-store", credentials: "same-origin" });
+        if (!response.ok) throw new Error("no list");
+        const list = (await response.json()).snapshots;
+        state.index = (Array.isArray(list) ? list : []).filter((s) => s && /^[0-9a-f]{64}$/.test(s.digest) && typeof s.label === "string" && typeof s.capturedAt === "string").map((s) => ({ id: s.snapshotId, file: s.digest, label: s.label, capturedAt: s.capturedAt })).sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));
+        return;
+      }
+      const response = await fetch("snapshots/index.json", { cache: "no-store", credentials: "omit" });
+      if (!response.ok) throw new Error("no index");
+      const index = await response.json();
+      state.index = Array.isArray(index.snapshots) ? index.snapshots.filter((s) => s && typeof s.file === "string" && /^[A-Za-z0-9._-]+\.json$/.test(s.file) && typeof s.label === "string" && typeof s.capturedAt === "string").sort((a, b) => a.capturedAt.localeCompare(b.capturedAt)) : [];
+    } catch {
+      state.index = [];
+    }
   }
+  const operate = await startOperate({
+    say,
+    onSnapshots: async () => { const current = $("snapshot-select").value; await loadIndex(); fillSelectors(); if (current) $("snapshot-select").value = current; }
+  });
+  state.server = operate.server && operate.signedIn;
+  if (operate.server && !operate.signedIn) return say("Sign in to see snapshots.");
+  await loadIndex();
   fillSelectors();
   if (state.index.length === 0) return say("No snapshot list was found. Open a snapshot file to begin.");
   const latestReference = state.index.find((s) => s.id === "SYNTH-SNAP-003") ?? state.index.at(-1);

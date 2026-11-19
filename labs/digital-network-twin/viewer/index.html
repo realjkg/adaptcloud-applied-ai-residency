@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'">
   <title>Topology viewer</title>
   <link rel="stylesheet" href="viewer.css">
 </head>
@@ -51,10 +51,12 @@
         <p class="note">A capture records when the state was true and the digest it was made from.</p>
       </section>
 
-      <section>
-        <h2>Change</h2>
-        <button id="request-change" type="button" disabled aria-disabled="true">Request a change</button>
-        <p class="note">This viewer is read-only. A change goes through the guarded provisioning gate with a human approval, not from this page.</p>
+      <section id="operate">
+        <h2>Operate</h2>
+        <div id="operate-root">
+          <button id="request-change" type="button" disabled aria-disabled="true">Request a change</button>
+          <p class="note">This page is read-only when opened as plain files. Collection and changes need the control-plane service and a signed-in session. Every change goes through the guarded gate with a human approval.</p>
+        </div>
       </section>
     </aside>
 

@@ -47,3 +47,9 @@ dl { margin: 0; } dt { font-weight: 600; margin-top: 8px; } dd { margin: 0; colo
 table { width: 100%; border-collapse: collapse; font-size: 13px; } th, td { text-align: left; padding: 4px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
 @media (max-width: 1000px) { .layout { grid-template-columns: 1fr; } .canvas { max-height: none; } }
 @media print { .panel, .bar, .status { display: none; } .layout { display: block; padding: 0; } .canvas-wrap { border: 0; } .canvas { max-height: none; overflow: visible; } }
+
+a.button { display: inline-block; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); text-decoration: none; }
+a.button:hover { border-color: var(--accent); }
+.change { border: 1px solid var(--line); border-radius: 6px; padding: 8px; display: grid; gap: 6px; }
+.change p { margin: 0; }
+#control-list { max-height: 220px; overflow: auto; }

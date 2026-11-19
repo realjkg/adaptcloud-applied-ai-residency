@@ -120,7 +120,7 @@ test("the viewer server is read-only, local, and limited to its own files", asyn
 
 test("viewer sources avoid markup sinks, network calls to other hosts, and inline code", () => {
   const forbidden = [/innerHTML/, /outerHTML/, /insertAdjacentHTML/, /document\.write/, /\beval\s*\(/, /new Function/, /localStorage|sessionStorage/, /XMLHttpRequest|WebSocket|sendBeacon/, /https?:\/\//];
-  for (const name of ["app.js", "render.js", "layout.js", "snapshot.js", "drawio.js"]) {
+  for (const name of ["app.js", "operate.js", "render.js", "layout.js", "snapshot.js", "drawio.js"]) {
     const src = readFileSync(join(root, "viewer", name), "utf8").replace(/\/\/.*$/gm, "").replace(/"http:\/\/www\.w3\.org\/2000\/svg"/g, "");
     for (const re of forbidden) assert.ok(!re.test(src), `${name} matches ${re}`);
   }

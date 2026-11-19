@@ -1,0 +1,164 @@
+// The control-plane service. It serves the viewer and a small JSON API behind sign-in.
+//
+//   - Every /api route needs a session. Sessions come from OpenID Connect, or, in simulator mode only, from a fixed
+//     list of personas. Live mode refuses persona sign-in.
+//   - Roles are checked on the server for every action. The browser's idea of its role is only for drawing buttons.
+//   - State-changing requests need the session's CSRF token, a JSON body, and an Origin that matches this service.
+//   - Writes go only through the change workflow, which uses the guarded provisioning gate.
+
+import { readFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { can, permissionsFor, rolesFromGroups } from "./roles.mjs";
+import { parseCookies } from "./sessions.mjs";
+
+const VIEWER = join(dirname(fileURLToPath(import.meta.url)), "..", "viewer");
+const ASSETS = { "index.html": "text/html; charset=utf-8", "app.js": "text/javascript; charset=utf-8", "operate.js": "text/javascript; charset=utf-8", "render.js": "text/javascript; charset=utf-8", "layout.js": "text/javascript; charset=utf-8", "snapshot.js": "text/javascript; charset=utf-8", "drawio.js": "text/javascript; charset=utf-8", "viewer.css": "text/css; charset=utf-8" };
+const HEADERS = {
+  "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+  "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer", "Cache-Control": "no-store"
+};
+const MAX_BODY = 256 * 1024;
+const HEX = /^[0-9a-f]{64}$/;
+const CHG = /^CHG-[0-9A-F]{10}$/;
+
+export function createApp({ mode, origin, secureCookies = false, sessions, oidc = null, personas = {}, groupRoles = {}, store, scheduler, changes, audit, collectNow, killSwitch }) {
+  if (mode !== "simulator" && mode !== "live") throw new Error("mode must be simulator or live");
+  if (mode === "live" && !oidc) throw new Error("live mode requires OpenID Connect sign-in");
+
+  return createServer(async (req, res) => {
+    const send = (status, body, type = "text/plain; charset=utf-8", extra = {}) => {
+      res.writeHead(status, { ...HEADERS, "Content-Type": type, ...extra });
+      res.end(req.method === "HEAD" ? undefined : body);
+    };
+    const json = (status, value, extra) => send(status, JSON.stringify(value), "application/json; charset=utf-8", extra);
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const parts = decodeURIComponent(url.pathname).split("/").filter(Boolean);
+    const cookie = (id, maxAge) => `sid=${id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${secureCookies ? "; Secure" : ""}`;
+    const sessionId = parseCookies(req.headers.cookie).sid;
+    const session = sessions.get(sessionId);
+
+    try {
+      // Static files are public; they hold no data.
+      if (req.method === "GET" || req.method === "HEAD") {
+        if (parts.length === 0) return send(200, await readFile(join(VIEWER, "index.html")), ASSETS["index.html"]);
+        if (parts.length === 1 && parts[0] === "favicon.ico") return send(204, "");
+        if (parts.length === 1 && ASSETS[parts[0]]) return send(200, await readFile(join(VIEWER, parts[0])), ASSETS[parts[0]]);
+      }
+
+      if (parts[0] === "auth") {
+        if (req.method === "GET" && parts[1] === "login" && oidc) return send(302, "", "text/plain", { Location: oidc.begin() });
+        if (req.method === "GET" && parts[1] === "callback" && oidc) {
+          try {
+            const who = await oidc.complete({ state: url.searchParams.get("state"), code: url.searchParams.get("code") });
+            const roles = rolesFromGroups(who.groups, groupRoles);
+            if (roles.length === 0) { await audit.record({ event: "login.denied", actor: who.subject, reason: "no_role" }); return send(403, "no role is assigned to this account"); }
+            const s = sessions.create({ subject: who.subject, name: who.name, roles });
+            await audit.record({ event: "login", actor: who.subject, roles: roles.join(",") });
+            return send(302, "", "text/plain", { Location: "/", "Set-Cookie": cookie(s.id, 28800) });
+          } catch (error) {
+            await audit.record({ event: "login.failed", reason: String(error.message).replace(/[^a-z_]/g, "").slice(0, 40) });
+            return send(401, "sign-in failed");
+          }
+        }
+        if (req.method === "POST" && parts[1] === "persona") {
+          if (mode !== "simulator") return json(403, { error: "personas_disabled" });
+          const body = await readJson(req, origin);
+          const persona = typeof body.persona === "string" && Object.hasOwn(personas, body.persona) ? personas[body.persona] : null;
+          if (!persona) return json(401, { error: "unknown_persona" });
+          const s = sessions.create({ subject: `persona:${body.persona}`, name: persona.name, roles: persona.roles });
+          await audit.record({ event: "login", actor: `persona:${body.persona}`, roles: persona.roles.join(","), mode: "simulator" });
+          return json(200, { ok: true }, { "Set-Cookie": cookie(s.id, 28800) });
+        }
+        if (req.method === "POST" && parts[1] === "logout") {
+          if (session) { if (!sessions.csrfOk(session, req.headers["x-csrf-token"])) return json(403, { error: "csrf" }); sessions.destroy(sessionId); }
+          return json(200, { ok: true }, { "Set-Cookie": cookie("", 0) });
+        }
+        return json(404, { error: "not_found" });
+      }
+
+      if (parts[0] !== "api") return send(404, "not found");
+      if (req.method === "GET" && parts[1] === "mode") return json(200, { mode, signIn: oidc ? "sso" : "persona", personas: mode === "simulator" ? Object.entries(personas).map(([id, p]) => ({ id, name: p.name, roles: p.roles })) : [] });
+      if (!session) return json(401, { error: "sign_in_required" });
+      const user = { subject: session.user.subject, name: session.user.name, roles: session.user.roles };
+      const writes = !["GET", "HEAD"].includes(req.method);
+      if (writes && !sessions.csrfOk(session, req.headers["x-csrf-token"])) return json(403, { error: "csrf" });
+      const need = async (permission) => { if (can(user.roles, permission)) return true; await audit.record({ event: "denied", actor: user.subject, permission }); json(403, { error: "forbidden" }); return false; };
+      const body = writes ? await readJson(req, origin) : null;
+
+      if (req.method === "GET" && parts[1] === "me") return json(200, { user: { name: user.name, roles: user.roles }, permissions: permissionsFor(user.roles), csrf: session.csrf, mode, killSwitch: killSwitch.get() });
+
+      if (parts[1] === "snapshots") {
+        if (!(await need("snapshot:read"))) return;
+        if (req.method === "GET" && parts.length === 2) return json(200, { snapshots: await store.list() });
+        if (req.method === "GET" && parts.length === 3 && HEX.test(parts[2])) {
+          try { return send(200, (await store.read(parts[2])).text, "application/json; charset=utf-8"); } catch { return json(404, { error: "not_found_or_damaged" }); }
+        }
+        if (req.method === "POST" && parts[3] === "hold" && HEX.test(parts[2])) {
+          if (!(await need("snapshot:hold"))) return;
+          await store.setHold(parts[2], body.hold === true);
+          await audit.record({ event: "snapshot.hold", actor: user.subject, digest: parts[2], hold: body.hold === true });
+          return json(200, { ok: true });
+        }
+      }
+      if (parts[1] === "collect" && req.method === "POST") {
+        if (!(await need("collect:run"))) return;
+        await audit.record({ event: "collect.requested", actor: user.subject });
+        return json(200, await scheduler.runNow());
+      }
+      if (parts[1] === "schedule") {
+        if (req.method === "GET") return json(200, scheduler.status());
+        if (req.method === "POST") {
+          if (!(await need("schedule:manage"))) return;
+          if (body.action === "pause") scheduler.pause("admin"); else if (body.action === "resume") scheduler.resume(); else return json(400, { error: "action_invalid" });
+          await audit.record({ event: `schedule.${body.action}`, actor: user.subject });
+          return json(200, scheduler.status());
+        }
+      }
+      if (parts[1] === "killswitch" && req.method === "POST") {
+        if (!(await need("killswitch:set"))) return;
+        killSwitch.set(body.on === true);
+        await audit.record({ event: "killswitch", actor: user.subject, on: body.on === true });
+        return json(200, { killSwitch: killSwitch.get() });
+      }
+      if (parts[1] === "controls" && req.method === "GET") { if (!(await need("change:read"))) return; return json(200, { controls: changes.controls() }); }
+      if (parts[1] === "changes") {
+        if (req.method === "GET" && parts.length === 2) { if (!(await need("change:read"))) return; return json(200, { changes: changes.list() }); }
+        if (req.method === "POST" && parts.length === 2) {
+          const r = await changes.request(user, { action: body.action, selectors: body.selectors, config: body.config });
+          return json(r.ok ? 201 : r.code === "forbidden" ? 403 : 422, r);
+        }
+        if (req.method === "POST" && CHG.test(parts[2] ?? "") && parts[3] === "decision") { const r = await changes.decide(user, parts[2], body.decision); return json(r.ok ? 200 : r.code === "forbidden" || r.code === "self_approval" ? 403 : 409, r); }
+        if (req.method === "POST" && CHG.test(parts[2] ?? "") && parts[3] === "execute") { const r = await changes.execute(user, parts[2]); return json(r.ok ? 200 : r.code === "forbidden" ? 403 : 409, r); }
+      }
+      if (parts[1] === "audit" && req.method === "GET") {
+        if (!(await need("audit:read"))) return;
+        return json(200, { verify: await audit.verify(), entries: await audit.read(100) });
+      }
+      return json(404, { error: "not_found" });
+    } catch (error) {
+      if (error?.status) return json(error.status, { error: error.code });
+      return json(500, { error: "internal" });
+    }
+  });
+}
+
+class HttpError extends Error { constructor(status, code) { super(code); this.status = status; this.code = code; } }
+
+async function readJson(req, origin) {
+  if (req.headers.origin !== (typeof origin === "function" ? origin() : origin)) throw new HttpError(403, "origin");
+  if (!/^application\/json\b/i.test(req.headers["content-type"] ?? "")) throw new HttpError(415, "content_type");
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > MAX_BODY) throw new HttpError(413, "too_large");
+    chunks.push(chunk);
+  }
+  try {
+    const value = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+    if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error();
+    return value;
+  } catch { throw new HttpError(400, "invalid_json"); }
+}
