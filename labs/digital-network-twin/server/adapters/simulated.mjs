@@ -47,6 +47,7 @@ export function createSimulatedAdapters() {
     vendor: "paloalto",
     changeTypes: PA,
     verifyScope: (target) => verify(panKey(target))(),
+    async preflight(target) { return { simulated: true, checks: [{ name: "appliance identity matches inventory", pass: !sim.mismatch.has(panKey(target)) }, { name: "pending-changes reply has the expected shape", pass: true }, { name: "running-config read has the expected shape", pass: true }], notExercised: ["commit submission reply", "commit job status reply"] }; },
     async readState({ params, target }) { const P = panFor(panKey(target)); return { object: clone(P.object.get(params.name) ?? null), pending: P.pending }; },
     async plan({ changeType, params, opId, target }) {
       const state = await this.readState({ params, target });
@@ -86,6 +87,7 @@ export function createSimulatedAdapters() {
     vendor: "meraki",
     changeTypes: { ...MX, ...SDWAN_CHANGE_TYPES },
     verifyScope: (target) => verify(mxKey(target))(),
+    async preflight(target) { return { simulated: true, checks: [{ name: "network and appliance match inventory", pass: !sim.mismatch.has(mxKey(target)) }, { name: "rule list reads and round-trips", pass: true }], notExercised: ["rule list write reply"] }; },
     async readState({ changeType, target }) {
       if (changeType.startsWith("sdwan.")) return { prefs: clone(sdwanFor(mxKey(target)).prefs) };
       return { rules: clone(mxFor(mxKey(target)).rules) };

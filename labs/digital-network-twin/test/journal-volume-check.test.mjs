@@ -9,8 +9,11 @@ test("the volume check passes on a local directory, and verify passes in a fresh
   const dir = mkdtempSync(join(tmpdir(), "twin-vol-"));
   const w = await writePhase(dir);
   assert.equal(w.ok, true, JSON.stringify(w.checks.filter((c) => !c.pass)));
-  const v = await verifyPhase(dir);
+  const v = await verifyPhase(dir, { requireDifferentHost: false });
   assert.equal(v.ok, true, JSON.stringify(v.checks.filter((c) => !c.pass)));
+  const sameHost = await verifyPhase(dir);
+  assert.equal(sameHost.ok, false, "verify on the same host is not a task replacement");
+  assert.deepEqual(sameHost.checks.filter((c) => !c.pass).map((c) => c.name), ["the replacement is a different task"]);
   rmSync(dir, { recursive: true });
 });
 

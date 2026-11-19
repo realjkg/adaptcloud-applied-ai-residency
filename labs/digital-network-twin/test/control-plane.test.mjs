@@ -542,3 +542,55 @@ test("in a browser: a simulated SD-WAN change is planned, approved with an exclu
     assert.equal(t.svc.sim.sdwanFor(AUS_NET).prefs.voice, "wan2");
   } finally { await browser.close(); t.close(); }
 });
+
+// ---- live readiness over HTTP and in a browser
+test("readiness API: everyone signed in can read it, only admins can run checks, and nothing provisions, approves, or retries", async () => {
+  const t = await service();
+  try {
+    const viewer = await t.client("viewer"); const op = await t.client("operator"); const admin = await t.client("admin");
+    assert.equal((await t.client()).call && (await (await t.client()).call("GET", "/api/readiness")).status, 401);
+    const read = await viewer.call("GET", "/api/readiness");
+    assert.equal(read.status, 200);
+    assert.equal(read.body.storage.status, "not_run");
+    assert.deepEqual(read.body.targets.map((x) => x.alias).sort(), ["mx-aus-branch", "pan-dfw-edge"]);
+    assert.match(read.body.notice, /never authorizes a write/);
+    assert.equal((await viewer.call("POST", "/api/readiness/storage-check", {})).status, 403);
+    assert.equal((await op.call("POST", "/api/readiness/preflight", { targetId: "pan-dfw-edge" })).status, 403);
+    const run = await admin.call("POST", "/api/readiness/storage-check", {});
+    assert.equal(run.status, 200);
+    assert.equal(run.body.storage.status, "simulated_only");
+    assert.equal((await admin.call("POST", "/api/readiness/preflight", { targetId: "pan-dfw-edge" })).body.preflight.status, "verified");
+    assert.equal((await admin.call("POST", "/api/readiness/preflight", { targetId: "pan-aus-edge" })).status, 404);
+    for (const path of ["/api/readiness/provision-storage", "/api/readiness/approve", "/api/targets", "/api/operations/OP-0000000000/retry", "/api/operations/OP-0000000000/retry-commit"]) {
+      assert.ok([404, 405].includes((await admin.call("POST", path, {})).status), path);
+    }
+    const events = (await admin.call("GET", "/api/audit")).body.entries.map((e) => e.event);
+    for (const e of ["readiness.storage_started", "readiness.storage_finished", "readiness.preflight"]) assert.ok(events.includes(e), e);
+  } finally { t.close(); }
+});
+
+test("in a browser: the Live readiness panel shows three separate verdicts, and only an admin sees the buttons", { skip: playwright ? false : "playwright not installed" }, async () => {
+  const t = await service();
+  const browser = await playwright.chromium.launch();
+  try {
+    const open = async (persona) => {
+      const page = await (await browser.newContext()).newPage();
+      await page.goto(t.base);
+      await page.locator(`[data-persona="${persona}"]`).click();
+      await page.waitForSelector("#readiness");
+      return page;
+    };
+    const viewer = await open("viewer");
+    assert.match(await viewer.locator("#readiness").textContent(), /never authorizes a write/);
+    assert.equal(await viewer.getByRole("button", { name: "Run storage check" }).count(), 0);
+    const admin = await open("admin");
+    await admin.getByRole("button", { name: "Run storage check" }).click();
+    await admin.waitForFunction(() => /Simulated only/.test(document.querySelector('[data-readiness="storage"]').textContent));
+    assert.match(await admin.locator('[data-readiness="storage"]').textContent(), /local simulation, not the deployed volume/);
+    await admin.locator('[data-readiness="target-pan-dfw-edge"]').getByRole("button", { name: "Run read-only checks" }).click();
+    await admin.waitForFunction(() => /preflight Verified/.test(document.querySelector('[data-readiness="target-pan-dfw-edge"]').textContent));
+    const text = await admin.locator('[data-readiness="target-pan-dfw-edge"]').textContent();
+    assert.match(text, /Not exercised by a preflight: commit submission reply, commit job status reply/);
+    assert.match(text, /Approved round trip: not started/);
+  } finally { await browser.close(); t.close(); }
+});

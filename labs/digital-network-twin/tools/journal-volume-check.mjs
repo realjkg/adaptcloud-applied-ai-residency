@@ -9,6 +9,7 @@
 // one, not restarting a process inside the same task.
 
 import { randomBytes } from "node:crypto";
+import { hostname } from "node:os";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -39,12 +40,12 @@ export async function writePhase(dir) {
   const links = (await stat(join(base, `${id}.intent.json`))).nlink;
   ok("the published record is a single directory entry", links === 1, `nlink=${links}`);
 
-  const marker = { id, targetFingerprint, planDigest, jobId, writtenAt: new Date().toISOString(), host: process.env.HOSTNAME ?? null };
+  const marker = { id, targetFingerprint, planDigest, jobId, writtenAt: new Date().toISOString(), host: hostname() };
   await writeFile(join(dir, MARKER), JSON.stringify(marker), { mode: 0o600 });
   return report(checks, marker);
 }
 
-export async function verifyPhase(dir) {
+export async function verifyPhase(dir, { requireDifferentHost = true } = {}) {
   const checks = [];
   const ok = (name, pass, detail = "") => checks.push({ name, pass, detail });
   let marker;
@@ -54,7 +55,7 @@ export async function verifyPhase(dir) {
   const rec = await journal.recover({ id: marker.id, targetFingerprint: marker.targetFingerprint, planDigest: marker.planDigest });
   ok("the intent and job id survived task replacement", rec.state === "job_known" && rec.jobId === marker.jobId, rec.state);
   try { await journal.recordIntent({ id: marker.id, targetFingerprint: marker.targetFingerprint, planDigest: marker.planDigest }); ok("a replacement task still cannot record a second intent", false, "it was accepted"); } catch (error) { ok("a replacement task still cannot record a second intent", error.code === "EEXIST", error.code ?? error.message); }
-  ok("the replacement is a different task", marker.host === null || marker.host !== (process.env.HOSTNAME ?? null), `first host ${marker.host}, this host ${process.env.HOSTNAME ?? "unknown"}`);
+  ok("the replacement is a different task", !requireDifferentHost || marker.host === null || marker.host !== hostname(), `first host ${marker.host}, this host ${hostname()}`);
   return report(checks, marker);
 }
 

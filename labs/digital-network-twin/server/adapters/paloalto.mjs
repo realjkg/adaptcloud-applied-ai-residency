@@ -105,6 +105,19 @@ export function createPaloAltoAdapter({ http, target: rawTarget, env, sleep = sl
     vendor: "paloalto",
     changeTypes: CHANGE_TYPES,
     submitPartialCommit, readCommitJob,
+    /**
+     * Read-only preflight. Exercises appliance identity and the read shapes used by planning and verification. It does NOT
+     * exercise a commit job reply: that needs an existing job or the approved round trip, and is reported as not exercised.
+     */
+    async preflight() {
+      const checks = [];
+      const run = async (name, fn) => { try { await fn(); checks.push({ name, pass: true }); } catch (error) { checks.push({ name, pass: false, detail: String(error?.code ?? error?.message ?? "failed").slice(0, 60) }); } };
+      await run("appliance identity matches inventory", () => this.verifyScope());
+      await run("pending-changes reply has the expected shape", async () => { await pendingList(); });
+      await run("candidate address read has the expected shape", async () => { await candidateObject("twin-preflight-probe"); });
+      await run("running-config read has the expected shape", async () => { await runningObject("twin-preflight-probe"); });
+      return { checks, notExercised: ["commit submission reply", "commit job status reply"] };
+    },
     /** Settles a known commit job without submitting anything: one job lookup, then the running-config read-back. */
     async finishFromJob(plan, { params, changeType, jobId }) {
       const name = params.name;

@@ -3,6 +3,7 @@
 // data, and fixed personas, and binds to 127.0.0.1. Live mode needs a settings file, OpenID Connect, credentials in the
 // environment, and the recorded authorization; see docs/CONTROL_PLANE.md. NOT TESTED AGAINST REAL SYSTEMS.
 
+import { createHash } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -18,6 +19,7 @@ import { createAudit } from "./audit.mjs";
 import { createChangeService } from "./changes.mjs";
 import { liveWriteAuthorized } from "./live-authorization.mjs";
 import { createOidc } from "./oidc.mjs";
+import { createReadiness } from "./readiness.mjs";
 import { createOperations } from "./operations.mjs";
 import { createScheduler } from "./scheduler.mjs";
 import { createSessions } from "./sessions.mjs";
@@ -81,8 +83,11 @@ export async function createLiveService({ settings, env = process.env, fetchImpl
     }
   });
   const sessions = createSessions({ now: () => now().getTime() });
-  const app = createApp({ mode: "live", origin: settings.origin, secureCookies: true, sessions, oidc, groupRoles: settings.groupRoles, store, scheduler, changes, operations, audit, killSwitch });
-  return { app, store, audit, scheduler, changes, operations, sessions, killSwitch };
+  // The storage runner comes from deployment glue: a runner that starts two separate test tasks on the same access point and
+  // reports kind "ecs-efs"). None is built here, so without one the panel says the check cannot be run.
+  const readiness = createReadiness({ deploymentId: settings.deploymentId ?? createHash("sha256").update(`${settings.origin}|${settings.dataDir}`).digest("hex").slice(0, 16), storageRunner: settings.storageRunner ?? null, operations, audit, now, file: join(settings.dataDir, "readiness.json") });
+  const app = createApp({ mode: "live", origin: settings.origin, secureCookies: true, sessions, oidc, groupRoles: settings.groupRoles, store, scheduler, changes, operations, readiness, audit, killSwitch });
+  return { app, store, audit, scheduler, changes, operations, readiness, sessions, killSwitch };
 }
 
 export async function main(argv) {

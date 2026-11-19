@@ -23,7 +23,7 @@ const MAX_BODY = 256 * 1024;
 const HEX = /^[0-9a-f]{64}$/;
 const CHG = /^CHG-[0-9A-F]{10}$/;
 
-export function createApp({ mode, origin, secureCookies = false, sessions, oidc = null, personas = {}, groupRoles = {}, store, scheduler, changes, operations = null, audit, collectNow, killSwitch }) {
+export function createApp({ mode, origin, secureCookies = false, sessions, oidc = null, personas = {}, groupRoles = {}, store, scheduler, changes, operations = null, readiness = null, audit, collectNow, killSwitch }) {
   if (mode !== "simulator" && mode !== "live") throw new Error("mode must be simulator or live");
   if (mode === "live" && !oidc) throw new Error("live mode requires OpenID Connect sign-in");
 
@@ -142,6 +142,11 @@ export function createApp({ mode, origin, secureCookies = false, sessions, oidc 
         if (req.method === "POST" && OPID.test(parts[2] ?? "") && parts[3] === "execute") { const r = await operations.execute(user, parts[2]); return json(code(r), r); }
         if (req.method === "POST" && OPID.test(parts[2] ?? "") && parts[3] === "reconcile") { const r = await operations.reconcile(user, parts[2]); return json(code(r), r); }
         if (req.method === "POST" && OPID.test(parts[2] ?? "") && parts[3] === "rollback") { const r = await operations.rollback(user, parts[2]); return json(code(r, 201), r); }
+      }
+      if (parts[1] === "readiness" && readiness) {
+        if (req.method === "GET" && parts.length === 2) { if (!(await need("readiness:read"))) return; return json(200, await readiness.state(user, operations ? operations.targets(user).map((t) => t.id) : [])); }
+        if (req.method === "POST" && parts[2] === "storage-check") { const r = await readiness.runStorageCheck(user); return json(r.ok ? 200 : r.code === "forbidden" ? 403 : r.code === "already_running" ? 409 : 422, r); }
+        if (req.method === "POST" && parts[2] === "preflight") { const r = await readiness.runPreflight(user, body.targetId); return json(r.ok ? 200 : r.code === "forbidden" ? 403 : r.code === "target_not_available" ? 404 : 422, r); }
       }
       if (parts[1] === "audit" && req.method === "GET") {
         if (!(await need("audit:read"))) return;

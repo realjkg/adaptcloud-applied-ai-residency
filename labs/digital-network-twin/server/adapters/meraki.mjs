@@ -31,6 +31,14 @@ export function createMerakiAdapter({ http, target: rawTarget, env }) {
       const devices = await http({ method: "GET", url: `${root}/devices`, auth });
       if (devices.status !== 200 || !Array.isArray(devices.json) || !devices.json.some((d) => d?.serial === target.scope?.applianceSerial)) throw new WriteError("device_does_not_match_inventory");
     },
+    /** Read-only preflight: identity, and that the rule list reads and round-trips. Nothing is written. */
+    async preflight() {
+      const checks = [];
+      const run = async (name, fn) => { try { await fn(); checks.push({ name, pass: true }); } catch (error) { checks.push({ name, pass: false, detail: String(error?.code ?? error?.message ?? "failed").slice(0, 60) }); } };
+      await run("network and appliance match inventory", () => this.verifyScope());
+      await run("rule list reads and round-trips", async () => { await get(); });
+      return { checks, notExercised: ["rule list write reply"] };
+    },
     readState: () => get(),
     async plan({ changeType, params, opId }) {
       const state = await get();

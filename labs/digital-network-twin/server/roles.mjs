@@ -14,6 +14,8 @@ const PERMISSIONS = {
   "operation:read": ["viewer", "operator", "approver", "admin"],
   "operation:approve": ["approver"],
   "operation:execute": ["operator", "admin"],
+  "readiness:read": ["viewer", "operator", "approver", "admin"],
+  "readiness:run": ["admin"],
   "schedule:manage": ["admin"],
   "snapshot:hold": ["admin"],
   "killswitch:set": ["admin"],

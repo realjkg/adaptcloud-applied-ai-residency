@@ -41,10 +41,11 @@ export async function startOperate({ onSnapshots, say }) {
   }
   csrf = me.json.csrf;
   const perms = new Set(me.json.permissions);
-  const state = { user: me.json.user, killSwitch: me.json.killSwitch, controls: [], picked: new Set(), file: null, targets: [], operations: [], draft: { targetId: "", changeType: "", values: {} }, exclusive: new Set() };
+  const state = { user: me.json.user, killSwitch: me.json.killSwitch, controls: [], picked: new Set(), file: null, targets: [], operations: [], draft: { targetId: "", changeType: "", values: {} }, exclusive: new Set(), readiness: null };
 
   async function refresh() {
-    const [changes, schedule, controls, targets, operations] = await Promise.all([api("GET", "/api/changes"), api("GET", "/api/schedule"), api("GET", "/api/controls"), api("GET", "/api/targets"), api("GET", "/api/operations")]);
+    const [changes, schedule, controls, targets, operations, readiness] = await Promise.all([api("GET", "/api/changes"), api("GET", "/api/schedule"), api("GET", "/api/controls"), api("GET", "/api/targets"), api("GET", "/api/operations"), api("GET", "/api/readiness")]);
+    state.readiness = readiness.json ?? null;
     state.controls = controls.json?.controls ?? [];
     state.targets = targets.json?.targets ?? [];
     state.operations = operations.json?.operations ?? [];
@@ -104,6 +105,7 @@ export async function startOperate({ onSnapshots, say }) {
       parts.push(form);
     }
 
+    parts.push(...renderReadiness());
     parts.push(...renderOperations());
     const list = h("div", { class: "stack", id: "change-list" }, h("h3", {}, "Changes"));
     if (changes.length === 0) list.append(h("p", { class: "note" }, "No changes yet."));
@@ -126,6 +128,32 @@ export async function startOperate({ onSnapshots, say }) {
       root.append(box);
     }));
     root.replaceChildren(...parts);
+  }
+
+  const STATUS = { verified: "Verified", simulated_only: "Simulated only", failed: "Failed", not_run: "Not run", stale: "Stale: re-run" };
+  function renderReadiness() {
+    const r = state.readiness;
+    if (!r) return [];
+    const box = h("div", { class: "stack", id: "readiness" }, h("h3", {}, "Live readiness"));
+    box.append(h("p", { class: "note" }, r.notice));
+    const st = r.storage;
+    const storage = h("div", { class: "change", "data-readiness": "storage" });
+    storage.append(h("p", {}, `Storage: ${STATUS[st.status] ?? st.status}${st.simulated ? " (local simulation, not the deployed volume)" : ""}`));
+    storage.append(h("p", { class: "note" }, st.detail ?? ""));
+    for (const t of st.tasks ?? []) storage.append(h("p", { class: "note" }, `Task ${t.id} (${t.role}): ${t.ok ? "passed" : "failed"}`));
+    if (perms.has("readiness:run")) storage.append(button("Run storage check", () => act(() => api("POST", "/api/readiness/storage-check", {}), "Storage check finished.")));
+    box.append(storage);
+    for (const row of r.targets) {
+      const item = h("div", { class: "change", "data-readiness": `target-${row.alias}` });
+      const p = row.preflight;
+      item.append(h("p", {}, `${row.alias}: firewall preflight ${STATUS[p.status] ?? p.status}${p.simulated ? " (simulated)" : ""}`));
+      for (const c of p.checks ?? []) item.append(h("p", { class: "note" }, `${c.pass ? "Passed" : "Failed"}: ${c.name}${c.detail ? ` (${c.detail})` : ""}`));
+      if (p.notExercised?.length) item.append(h("p", { class: "note" }, `Not exercised by a preflight: ${p.notExercised.join(", ")}.`));
+      item.append(h("p", { class: "note" }, `Approved round trip: ${{ not_started: "not started", create_verified_destroy_pending: "create verified, destroy still to be planned and approved", verified: "verified" }[row.roundTrip.state]}`));
+      if (perms.has("readiness:run")) item.append(button("Run read-only checks", () => act(() => api("POST", "/api/readiness/preflight", { targetId: row.alias }), "Read-only checks finished. Nothing was written.")));
+      box.append(item);
+    }
+    return [box];
   }
 
   function renderOperations() {
@@ -170,6 +198,7 @@ export async function startOperate({ onSnapshots, say }) {
       item.append(h("p", {}, `${o.id}: ${o.changeType} on ${o.targetId}${o.rollbackOf ? ` (rollback of ${o.rollbackOf})` : ""}`));
       item.append(h("p", { class: "note" }, `${o.status}. Requested by ${o.requester}${o.approver ? `, approved by ${o.approver}` : ""}. Plan digest ${short(o.planDigest)}. Expires ${o.expiresAt}. ${o.transport} transport.${o.result ? ` Result: ${o.result.outcome}${o.result.reason ? ` (${o.result.reason})` : ""}${o.result.candidateLeftInPlace || o.result.candidateMayExist ? ". A candidate edit may be staged on the firewall and needs review" : ""}.` : ""}`));
       if (o.commitScope) item.append(h("p", { class: "note" }, `Commit scope: ${o.commitScope.kind} commit by ${o.commitScope.byAdmin} in ${o.commitScope.vsys}, objects ${o.commitScope.objects.join(", ")}. Pending changes before: ${o.commitScope.pendingBefore}.`));
+      if (o.manualReview?.required) item.append(h("p", { class: "note", "data-state": "error", "data-manual-review": o.id }, `Manual review required. A commit may have been accepted but is not fully recorded. Check the firewall's job list${o.manualReview.jobId ? `; job ${o.manualReview.jobId} (from the ${o.manualReview.source})` : ""}. This page cannot retry a commit.`));
       const diff = h("pre", { class: "diff", "aria-label": "Dry-run diff" });
       diff.textContent = [...o.diff.before.map((l) => `${l.change === "removed" ? "-" : " "} ${l.line}`), "---", ...o.diff.after.map((l) => `${l.change === "added" ? "+" : " "} ${l.line}`)].join("\n") + (o.diff.unrelatedRulesUnchanged === true ? "\nUnrelated rules unchanged." : "");
       item.append(diff);

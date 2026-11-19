@@ -93,6 +93,20 @@ per-vendor `hosts` plus identifiers. Vendor credentials come from the environmen
 `BIGIP_USERNAME`, `BIGIP_PASSWORD`, `PANOS_API_KEY`, `MERAKI_API_KEY`, and the per-target variables named in `targets[].credentialEnv`. Put a TLS-terminating proxy in front; the service
 binds to 127.0.0.1. Run it inside the customer's network, not on a public host.
 
+## Live readiness panel
+
+One panel, three separate verdicts. None implies another, and none authorizes a write:
+
+| Verdict | What it shows | Who starts it |
+|---|---|---|
+| Storage | Two separate test tasks on the same volume: the second recovers the first's job id and still refuses a second intent. Task ids are shown. Counts as verified only for a runner of kind `ecs-efs`; a local run is labeled "Simulated only". Tied to the deployment, so a different deployment makes it stale. | Admin |
+| Firewall preflight | Read-only: appliance identity and the read shapes planning uses. It lists what it did not exercise (the commit and job replies). Tied to the target fingerprint, so repointing an alias makes it stale. | Admin |
+| Approved round trip | Computed, not started: a verified create and a freshly planned, separately approved destroy of it, through the normal request, approval, and execution flow. It stops counting if the alias is repointed. | Nobody: it reflects what happened |
+
+The panel cannot provision storage, edit a target, approve, execute, or retry. Storage, targets, and network rules stay in deployment configuration and Terraform. An uncertain commit shows "Manual review required" with any job id captured in the audit record, and the only action is the read-only "Check commit status".
+
+**Not built:** the runner that starts two Fargate test tasks on one EFS access point (it needs AWS access; the panel says "No storage check runner is configured" until one is supplied in the same `run()` contract), and a panel for CI results.
+
 ## Verifying the journal volume
 
 The journal's guarantees (a record written once, durable before use) depend on the volume. Before an approved appliance round trip, prove the volume on the real deployment:

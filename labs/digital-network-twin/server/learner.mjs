@@ -18,6 +18,8 @@ import { createApp } from "./app.mjs";
 import { createAudit } from "./audit.mjs";
 import { createChangeService } from "./changes.mjs";
 import { createOperations } from "./operations.mjs";
+import { createReadiness } from "./readiness.mjs";
+import { createLocalStorageRunner } from "./storage-runner-local.mjs";
 import { createScheduler } from "./scheduler.mjs";
 import { createSessions } from "./sessions.mjs";
 import { createSnapshotStore } from "./store.mjs";
@@ -68,8 +70,9 @@ export async function createSimulatorService({ dir, origin, now = () => new Date
   const resolver = createTargetResolver({ mode: "simulator", targets: SIMULATOR_TARGETS });
   const policy = createLabPolicy(LABS);
   const operations = createOperations({ resolver, policy, adapters, audit, now, killSwitch: killSwitch.get, transportKind: "simulator", file: join(dir, "operations.json") });
-  const app = createApp({ mode: "simulator", origin, sessions, personas: PERSONAS, store, scheduler, changes, operations, audit, killSwitch });
-  return { app, store, audit, scheduler, changes, operations, sessions, transport, killSwitch, sim };
+  const readiness = createReadiness({ deploymentId: "learner-simulator", storageRunner: createLocalStorageRunner(), operations, audit, now });
+  const app = createApp({ mode: "simulator", origin, sessions, personas: PERSONAS, store, scheduler, changes, operations, readiness, audit, killSwitch });
+  return { app, store, audit, scheduler, changes, operations, readiness, sessions, transport, killSwitch, sim };
 }
 
 export async function main(argv) {

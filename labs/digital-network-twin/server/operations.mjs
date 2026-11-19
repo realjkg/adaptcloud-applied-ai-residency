@@ -19,7 +19,7 @@ import { readFile, rename, writeFile } from "node:fs/promises";
 import { digest, markFor, OPID, same } from "./adapters/common.mjs";
 import { createCommitHooks } from "./commit-hooks.mjs";
 import { can } from "./roles.mjs";
-import { bindTarget, denyAllPolicy, recheckBoundTarget, TargetError } from "./target-resolution.mjs";
+import { bindTarget, denyAllPolicy, recheckBoundTarget, targetFingerprint, TargetError } from "./target-resolution.mjs";
 
 const deny = (code, extra = {}) => ({ ok: false, code, ...extra });
 export const PLAN_TTL_MS = 30 * 60_000;
@@ -49,7 +49,9 @@ export function createOperations({ resolver, policy = denyAllPolicy, adapters, a
     requester: op.requester.name, requestedAt: op.requestedAt, expiresAt: op.expiresAt, planDigest: op.planDigest,
     targetFingerprint: op.binding.fingerprint, contextId: op.contextId, diff: op.plan.diff, blockers: op.plan.blockers, commitScope: op.plan.commitScope, requiresExclusiveWindow: op.plan.requiresExclusiveWindow,
     approver: op.approval?.approverName ?? null, exclusiveWindowConfirmed: op.approval?.exclusiveWindow === true,
-    result: op.result ?? null, rollbackOf: op.rollbackOf ?? null, transport: transportKind
+    result: op.result ?? null, rollbackOf: op.rollbackOf ?? null, transport: transportKind,
+    // Where a person has to look: a commit may have been accepted but is not recorded. Never a retry.
+    manualReview: op.status === "uncertain" && ["commit_job_not_recorded", "commit_intent_already_recorded", "commit_response_lost", "service_restarted_during_write"].includes(op.result?.reason) ? { required: true, jobId: op.jobId ?? op.result?.jobId ?? null, source: op.jobId || op.result?.jobId ? "audit record" : null } : null
   });
 
   // Everything a vendor client needs comes from the resolver. One error for every reason, so a caller cannot probe the inventory.
@@ -183,6 +185,43 @@ export function createOperations({ resolver, policy = denyAllPolicy, adapters, a
       })();
       inflight.set(id, run);
       try { return await run; } finally { inflight.delete(id); }
+    },
+
+    /**
+     * Read-only preflight of a registered target: appliance identity and the read shapes planning relies on. It never
+     * writes, never commits, and never authorizes a write.
+     */
+    async preflight(user, alias) {
+      await ready;
+      const t = resolver.inspect(alias);
+      if (!t || t.mode !== resolver.mode) return deny("target_not_available");
+      const cap = [...t.capabilities][0];
+      if (!policy.allows({ principalId: user.subject, contextId: user.labId, alias, capability: cap, target: t })) return deny("target_not_available");
+      const ad = adapterAndDef(t, cap);
+      if (!ad?.adapter.preflight) return deny("preflight_unsupported");
+      let out;
+      try { out = await ad.adapter.preflight(t); } catch { out = { checks: [{ name: "preflight ran", pass: false, detail: "executor_error" }], notExercised: [] }; }
+      return { ok: true, alias, fingerprint: targetFingerprint(alias, cap, t), simulated: out.simulated === true, checks: out.checks, notExercised: out.notExercised, passed: out.checks.every((c) => c.pass) };
+    },
+
+    /** The current fingerprint of an alias this principal may use. No vendor call. */
+    async preflightKey(user, alias) {
+      const t = resolver.inspect(alias);
+      if (!t || t.mode !== resolver.mode) return null;
+      const cap = [...t.capabilities][0];
+      if (!policy.allows({ principalId: user.subject, contextId: user.labId, alias, capability: cap, target: t })) return null;
+      return { fingerprint: targetFingerprint(alias, cap, t) };
+    },
+
+    /** The approved round trip for one target: a verified create, and a freshly planned, separately approved destroy of it. */
+    roundTrip(user, alias) {
+      const t = resolver.inspect(alias);
+      if (!t) return { state: "not_started", createId: null, destroyId: null };
+      // An operation counts only if the alias still resolves to the scope it was planned against.
+      const mine = [...ops.values()].filter((op) => op.targetId === alias && visible(user, op) && op.binding.fingerprint === targetFingerprint(alias, op.changeType, t));
+      const created = mine.find((op) => op.status === "completed" && /\.(create|add)$/.test(op.changeType) && !op.rollbackOf && op.result?.outcome === "verified");
+      const destroyed = created && mine.find((op) => op.status === "completed" && op.rollbackOf === created.id && op.result?.outcome === "verified");
+      return { state: !created ? "not_started" : !destroyed ? "create_verified_destroy_pending" : "verified", createId: created?.id ?? null, destroyId: destroyed?.id ?? null };
     },
 
     /**

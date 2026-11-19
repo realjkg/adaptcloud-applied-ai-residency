@@ -439,3 +439,16 @@ test("no commit intent means no commit was submitted, not that no change was mad
   assert.equal(rec.operation.result.candidateMayExist, true);
   assert.equal(f.calls.length, before);
 });
+
+test("manual review: an uncertain commit with no saved job id shows the id captured in the audit record, and offers no retry", async () => {
+  const f = fakePan();
+  const j = journaled(f, { failJobRecording: true });
+  const op = await planned(j);
+  const done = await j.ops.execute(OP, op.id);
+  assert.deepEqual(done.operation.manualReview, { required: true, jobId: "77", source: "audit record" });
+  assert.equal(j.ops.retry, undefined);
+  const rec = await j.ops.reconcile(OP, op.id);
+  assert.equal(rec.code, "submission_uncertain_manual_review");
+  assert.equal(rec.operation.manualReview.jobId, "77");
+  assert.equal(f.commits, 1);
+});
