@@ -5,6 +5,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { evaluate, renderReport as renderAsBuilt } from "./asbuilt.mjs";
 import { runAgent } from "./health-agent.mjs";
 import { runRoundtrip } from "./provision-cli.mjs";
 import { buildChangeSet } from "./render-iac.mjs";
@@ -58,6 +59,16 @@ export async function runDemoChecks() {
   // Step 7: rehearse a change on a simulated tenant and prove it undoes cleanly.
   const roundtrip = await runRoundtrip(reference, new Date("2026-11-19T12:00:00Z"));
   check("7  apply then destroy leaves the simulated tenant unchanged", roundtrip.ok && roundtrip.symmetric && roundtrip.unmanagedSurvived, `${roundtrip.created} created, ${roundtrip.deleted} deleted`);
+
+  // Step 8: claim exactly against as-built requirements, across vendors.
+  const requirements = load("requirements", "example-asbuilt.json");
+  const claim = evaluate({ requirements, config: reference, attestations: load("requirements", "example-attestations.json") });
+  const c = claim.claim.counts;
+  check("8  the as-built claim is exact: 10 met, 1 not met, 4 cannot be answered", c.met === 10 && c.not_met === 1 && c.not_evaluable === 4 && c.attested === 1 && c.manual === 1, `${c.met} met, ${c.not_met} not met, ${c.not_evaluable} cannot say, ${c.attested} attested, ${c.manual} needs attestation`);
+  const v = Object.fromEntries(claim.results.map((r) => [r.id, r.verdict]));
+  check("8  an unmodeled Cisco platform is reported as a gap, not a pass", v["SYN-CORE-001"] === "not_evaluable" && claim.results.find((r) => r.id === "SYN-CORE-001").perVendor["cisco-ios"] === "gap", "SYN-CORE-001 cannot say: no mapping for cisco-ios");
+  check("8  scoping a requirement to F5 turns a cannot-say into a met", v["SYN-TLS-001"] === "not_evaluable" && v["SYN-TLS-002"] === "met", "TLS 1.2 across all vendors cannot say; scoped to F5 it is met");
+  check("8  the committed as-built report is current", readFileSync(join(HERE, "..", "docs", "ASBUILT_REPORT.md"), "utf8") === renderAsBuilt(claim), "docs/ASBUILT_REPORT.md equals the engine output");
 
   return results;
 }

@@ -99,6 +99,12 @@ npm run roundtrip
 ```
 *Say:* the apply and the undo run against a simulated tenant that already holds objects the twin does not own, and the tenant ends exactly as it began.
 
+**Step 8 (optional, 3 min). Claim exactly against their as-built requirements.**
+```bash
+npm run asbuilt
+```
+Show the traceability table: each requirement in the customer's own id and document reference, one verdict, and a column per vendor. Point at three rows. A requirement checked across vendors is met on one and "cannot say" on another, because the model does not carry that field. The same requirement scoped to one vendor is met. A Cisco platform the lab has no mapping for says "cannot say", never "met". *Say:* it only claims what it can show, and the "cannot say" list is the honest list of what the twin does not cover yet. A person's attestation is shown as one and never counted as a machine check. See `docs/ASBUILT_REQUIREMENTS.md`. Ask them for their as-built document so the requirements can be written in their ids.
+
 ## What we can and cannot say
 
 | What may come up | What the lab shows | Say |
@@ -108,6 +114,7 @@ npm run roundtrip
 | Docs that stay current | **Shown for generated artifacts.** Topology, checklist, change set, and report come from the model and tests fail on drift. Hand-written runbooks are not kept current automatically. | "Anything derived from the model stays current. Prose still needs an owner." |
 | Future-state modeling like SD-WAN | **Partly.** The Wi-Fi what-if shows the pattern. SD-WAN is not modeled. | "We have shown the pattern on a Wi-Fi change. SD-WAN is the next scenario type." |
 | Works across vendors | **Partly.** The model carries Meraki, Palo Alto, and F5 from their estate, plus Cloudflare, which is not in theirs. Cisco platforms other than Meraki are not modeled. Live adapters cover Cloudflare DNS records and four F5 object kinds, and have never run against a real system. Palo Alto and Meraki adapters are not built. | "The model is vendor-neutral. Each vendor needs its own adapter, and we would start with the platforms you care about most." |
+| Checked against our as-built requirements | **Shown on synthetic requirements.** Each requirement gets one of five verdicts with evidence, across Palo Alto, F5, Meraki, and Cloudflare, bound to digests of the config and requirements. It speaks only for the modeled config. A requirement the model cannot answer is "cannot say", and Cisco platforms other than Meraki have no mapping. We have not seen their as-built document yet. | "Give us the statements you need to be able to claim. We will write them in your ids and show you which the twin can answer today and which it cannot." |
 | Agents can help build the source of truth | **Partly.** A health agent checks a config as it is built, and the model draws whatever exists. No agent that ingests configs or documents into the source of truth exists yet. | "You do not have to get everything in one place first. The agent that reads your exports into the model is something we would build with you." |
 
 ## 4. What it would look like here (15 min)
@@ -133,6 +140,7 @@ These are hypotheses to test with them, not recommendations. A good first slice 
 
 | Need | Why |
 |---|---|
+| Their as-built document, or the statements they want to claim | To write requirements in their ids and show what is answerable |
 | A named owner for the first slice | Someone who can answer questions about it |
 | Sanitized exports or read-only API access for that slice | To build the source of truth from facts |
 | The current change process and an example of a recent change | To place the checks where the change is reviewed |

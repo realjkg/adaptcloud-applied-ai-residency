@@ -96,6 +96,14 @@ npm run rto
 
 Models what happens to the corporate Wi-Fi, the address pool, and the site uplink when many more people are in the office more days a week, using Meraki's published sizing method. It reports the share of users on a healthy, watch, or over-capacity zone, a day-by-day sweep showing where the first problem appears, and how many access points to add. Inputs are synthetic and every parameter says whether it came from Meraki, is a placeholder, or needs client data. See `docs/RTO_WIFI_SCENARIO.md` for the question to put to a client, the demo, and the data to ask for, and `docs/RTO_WIFI_REPORT.md` for the committed output. It is capacity arithmetic, not an RF survey. Real client numbers go in a `*.client.json` file, which git ignores.
 
+## Claim against customer as-built requirements
+
+```bash
+npm run asbuilt
+```
+
+Checks a customer's as-built requirements, written in their own ids, against the twin and says exactly what can and cannot be claimed. Each requirement gets one verdict: met, not met, cannot say, attested, or needs attestation. A field the model does not carry is unknown and never a pass, a failure outranks an unknown, and a person's attestation can never override a machine check. Each vendor's config is mapped into shared facts, so one requirement is checked across Palo Alto, F5, Meraki, and Cloudflare, and a vendor is added by adding a mapping, not by rewriting requirements. See `docs/ASBUILT_REQUIREMENTS.md` and the committed `docs/ASBUILT_REPORT.md`. The example is synthetic. Real requirements go in `*.client.json` files, which git ignores.
+
 ## Provision and deprovision (guarded)
 
 The control surface for applying and destroying the twin, tested against a simulated lab tenant. See `docs/PROVISIONING.md`.
@@ -130,6 +138,7 @@ The gate refuses by default. It acts only on a tenant named `lab` that is on an 
 | `npm run topology -- --config=<file>` | Renders the topology as Mermaid; `--out=<file>` writes Markdown |
 | `npm run render:iac` | Renders the change set and Terraform into `rendered/`; refuses an unhealthy config |
 | `npm run rto` | Return-to-office Wi-Fi what-if: before and after, where it breaks first, and APs to add |
+| `npm run asbuilt` | Claim exactly against customer as-built requirements across vendors: five verdicts, evidence for each, bound to digests |
 | `npm run demo:check` | Pre-flight for a client working session: runs every step in `docs/WORKING_SESSION.md` and fails if one stops behaving as described |
 | `npm run roundtrip` | Applies then destroys the twin on a simulated tenant and proves it is unchanged |
 | `node tools/provision-cli.mjs <plan\|apply\|destroy\|approval-template>` | Guarded provisioning against the simulated tenant; see `docs/PROVISIONING.md` |
