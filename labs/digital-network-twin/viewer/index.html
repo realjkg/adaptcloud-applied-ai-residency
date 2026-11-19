@@ -73,6 +73,13 @@
         <p role="status" aria-live="polite"></p>
       </section>
 
+      <section id="maintenance" hidden>
+        <h2>Maintenance scenario</h2>
+        <p class="note">Change a health monitor, preview which members it would take out of the pool, deploy to the simulator, and restore a known-good revision. The simulator's backends are fixed fixtures held by the server.</p>
+        <div data-maintenance-body class="stack"></div>
+        <p role="status" aria-live="polite"></p>
+      </section>
+
       <section id="operate">
         <h2>Operate</h2>
         <div id="operate-root">
@@ -104,5 +111,6 @@
   </main>
   <script type="module" src="app.js"></script>
   <script type="module" src="sdwan.js"></script>
+  <script type="module" src="scenario.js"></script>
 </body>
 </html>

@@ -81,6 +81,10 @@ Two server-side registries: synthetic targets (`server/simulator-targets.mjs`, r
   - **No intent is not a clean candidate.** "No commit was submitted" means the journaled path never reached the commit. The candidate edit happens earlier, so an operation that stopped there may still have a staged change. The result carries `candidateMayExist`, reconcile answers `candidate_edit_may_be_staged`, and the page says to inspect or clear the candidate on the firewall.
 - Live SD-WAN is never implied by a firewall capability: a live target that lists it is refused at load.
 
+## Maintenance scenario
+
+A learner-facing exercise with deterministic server-side fixtures: change a health monitor, preview the predicted effect, deploy to the simulator, and restore a known-good revision. See `docs/MAINTENANCE_SCENARIO.md`.
+
 ## Learner isolation
 
 The deployed learner service is `server/learner-deployed.mjs`. It is not the local test entry.

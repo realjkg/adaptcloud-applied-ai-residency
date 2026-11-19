@@ -15,6 +15,7 @@ import { createSimulatedAdapters } from "./adapters/simulated.mjs";
 import { createAudit } from "./audit.mjs";
 import { createChangeService } from "./changes.mjs";
 import { createOperations } from "./operations.mjs";
+import { createMaintenance } from "./scenarios/maintenance.mjs";
 import { createReadiness } from "./readiness.mjs";
 import { createScheduler } from "./scheduler.mjs";
 import { createSessions } from "./sessions.mjs";
@@ -73,7 +74,8 @@ export async function createLearnerCore({ dir, labs, now = () => new Date(), dep
   const resolver = createTargetResolver({ mode: "simulator", targets: SIMULATOR_TARGETS });
   const operations = createOperations({ resolver, policy, adapters, audit, now, killSwitch: killSwitch.get, transportKind: "simulator", file: join(dir, "operations.json") });
   const readiness = createReadiness({ deploymentId, storageRunner: createStorageRunnerForLearners(), operations, audit, now });
+  const scenarios = createMaintenance({ access: policy, audit, now, killSwitch: killSwitch.get });
   // In a lab-scoped deployment an administrator sees only events by people enrolled in the same lab.
   const auditFilter = (user) => { const lab = typeof user.labId === "string" && Object.hasOwn(labs, user.labId) ? labs[user.labId] : null; return lab ? (e) => typeof e.actor === "string" && lab.members.includes(e.actor) : null; };
-  return { store, audit, killSwitch, sessions, policy, changes, operations, readiness, schedulerFor, auditFilter, sim, transportFor, labs };
+  return { store, audit, killSwitch, sessions, policy, changes, operations, readiness, scenarios, schedulerFor, auditFilter, sim, transportFor, labs };
 }

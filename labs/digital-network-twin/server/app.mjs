@@ -15,7 +15,7 @@ import { parseCookies } from "./sessions.mjs";
 import { evaluateSdwan } from "./adapters/sdwan-model.mjs";
 
 const VIEWER = join(dirname(fileURLToPath(import.meta.url)), "..", "viewer");
-const ASSETS = { "sdwan.js": "text/javascript; charset=utf-8", "index.html": "text/html; charset=utf-8", "app.js": "text/javascript; charset=utf-8", "operate.js": "text/javascript; charset=utf-8", "render.js": "text/javascript; charset=utf-8", "layout.js": "text/javascript; charset=utf-8", "snapshot.js": "text/javascript; charset=utf-8", "drawio.js": "text/javascript; charset=utf-8", "viewer.css": "text/css; charset=utf-8" };
+const ASSETS = { "scenario.js": "text/javascript; charset=utf-8", "sdwan.js": "text/javascript; charset=utf-8", "index.html": "text/html; charset=utf-8", "app.js": "text/javascript; charset=utf-8", "operate.js": "text/javascript; charset=utf-8", "render.js": "text/javascript; charset=utf-8", "layout.js": "text/javascript; charset=utf-8", "snapshot.js": "text/javascript; charset=utf-8", "drawio.js": "text/javascript; charset=utf-8", "viewer.css": "text/css; charset=utf-8" };
 const HEADERS = {
   "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
   "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer", "Cache-Control": "no-store"
@@ -31,7 +31,7 @@ const CHG = /^CHG-[0-9A-F]{10}$/;
  * The lab a session belongs to is resolved on the server at sign-in (persona table, enrollment, or "live") and stored in the
  * session. Nothing in a request body or header can set it. A session with no lab can reach no lab data.
  */
-export function createApp({ mode, origin, secureCookies = false, sessions, oidc = null, enrollment = null, personas = {}, groupRoles = {}, store, scheduler, schedulerFor = null, changes, operations = null, readiness = null, audit, auditFilter = null, collectNow, killSwitch }) {
+export function createApp({ mode, origin, secureCookies = false, sessions, oidc = null, enrollment = null, personas = {}, groupRoles = {}, store, scheduler, schedulerFor = null, changes, operations = null, readiness = null, scenarios = null, audit, auditFilter = null, collectNow, killSwitch }) {
   if (!["simulator", "learner", "live"].includes(mode)) throw new Error("mode must be simulator, learner, or live");
   if ((mode === "live" || mode === "learner") && !oidc) throw new Error(`${mode} mode requires OpenID Connect sign-in`);
   if (mode === "learner" && typeof enrollment?.resolve !== "function") throw new Error("learner mode requires enrollment");
@@ -129,6 +129,13 @@ export function createApp({ mode, origin, secureCookies = false, sessions, oidc 
         return json(200, result);
       }
 
+      if (parts[1] === "scenarios" && parts[2] === "maintenance" && scenarios) {
+        const code = (r, ok = 200) => (r.ok ? ok : r.code === "forbidden" ? 403 : r.code === "not_found" ? 404 : r.code?.startsWith("already_") || r.code === "stale_plan_new_plan_required" || r.code === "plan_expired" ? 409 : 422);
+        if (req.method === "GET" && parts.length === 3) { if (!(await need("scenario:read"))) return; const v = scenarios.get(user); return v ? json(200, v) : json(404, { error: "not_found" }); }
+        if (req.method === "POST" && parts[3] === "plan" && parts.length === 4) { const r = await scenarios.plan(user, body); return json(code(r, 201), r); }
+        if (req.method === "POST" && parts[3] === "deploy" && parts.length === 4) { const r = await scenarios.deploy(user, body.planId); return json(code(r), r); }
+        if (req.method === "GET" && parts[3] === "plans" && parts.length === 5) { if (!(await need("scenario:read"))) return; const p = scenarios.getPlan(user, parts[4]); return p ? json(200, { plan: p }) : json(404, { ok: false, code: "not_found" }); }
+      }
       if (parts[1] === "snapshots") {
         if (!(await need("snapshot:read"))) return;
         // Access is checked before metadata or content leaves the store: a hash proves integrity, not permission.
