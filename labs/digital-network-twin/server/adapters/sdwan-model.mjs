@@ -1,7 +1,9 @@
 const METRICS = ['latencyMs', 'jitterMs', 'lossPct'];
 
 // One synthetic observation per uplink. No clocks, probes, or vendor calls.
-export function evaluateSdwan({ policy, observations, previous = null }) {
+export function evaluateSdwan({ policy, observations, previous = null } = {}) {
+  // Callers other than the HTTP route may pass anything. A missing or non-object policy is an input error, not a TypeError.
+  if (policy === null || typeof policy !== 'object' || Array.isArray(policy)) throw new Error('invalid_uplinks');
   const { preferred, backup, thresholds, failback } = policy;
   const paths = [preferred, backup];
   if (new Set(paths).size !== 2 || !paths.every(path => ['wan1', 'wan2'].includes(path))) throw new Error('invalid_uplinks');
