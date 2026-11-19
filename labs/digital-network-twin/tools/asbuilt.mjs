@@ -326,7 +326,7 @@ export function evaluate({ requirements, config, attestations = {}, vendors = DE
   };
 }
 
-const esc = (v) => String(v).replace(/[\r\n\t]+/g, " ").replace(/\|/g, "\\|").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const esc = (v) => String(v).replace(/[\r\n\t]+/g, " ").replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const SYMBOL = { pass: "ok", fail: "FAIL", unknown: "?", gap: "gap", none: "-" };
 const LABEL = { met: "Met", unmet: "Unmet", indeterminable: "Indeterminable", attested: "Attested", needs_attestation: "Needs attestation" };
 

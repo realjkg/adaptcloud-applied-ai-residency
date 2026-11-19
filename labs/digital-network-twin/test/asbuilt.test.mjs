@@ -269,6 +269,12 @@ test("the report speaks only for the modeled config, says what it cannot claim, 
   assert.ok(hostile.split("\n").some((line) => line.includes("a \\| b c &lt;script&gt;") && line.startsWith("| T-1")));
 });
 
+test("a backslash in a title cannot cancel the pipe escape and break out of its table cell", () => {
+  const set = { requirementSetId: "T", synthetic: true, requirements: [{ id: "T-1", title: "a\\| b", source: "s", kind: "manual" }] };
+  const line = renderReport(evaluate({ requirements: set, config: config() })).split("\n").find((l) => l.startsWith("| T-1"));
+  assert.ok(line.includes("a\\\\\\| b"));
+});
+
 test("the committed report is exactly what the engine produces", () => {
   assert.equal(readFileSync(join(root, "docs", "ASBUILT_REPORT.md"), "utf8"), renderReport(shipped()));
 });
