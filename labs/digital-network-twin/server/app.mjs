@@ -15,7 +15,7 @@ import { parseCookies } from "./sessions.mjs";
 import { evaluateSdwan } from "./adapters/sdwan-model.mjs";
 
 const VIEWER = join(dirname(fileURLToPath(import.meta.url)), "..", "viewer");
-const ASSETS = { "scenario.js": "text/javascript; charset=utf-8", "sdwan.js": "text/javascript; charset=utf-8", "index.html": "text/html; charset=utf-8", "app.js": "text/javascript; charset=utf-8", "operate.js": "text/javascript; charset=utf-8", "render.js": "text/javascript; charset=utf-8", "layout.js": "text/javascript; charset=utf-8", "snapshot.js": "text/javascript; charset=utf-8", "drawio.js": "text/javascript; charset=utf-8", "viewer.css": "text/css; charset=utf-8" };
+const ASSETS = { "scenario.js": "text/javascript; charset=utf-8", "journey.js": "text/javascript; charset=utf-8", "sdwan.js": "text/javascript; charset=utf-8", "index.html": "text/html; charset=utf-8", "app.js": "text/javascript; charset=utf-8", "operate.js": "text/javascript; charset=utf-8", "render.js": "text/javascript; charset=utf-8", "layout.js": "text/javascript; charset=utf-8", "snapshot.js": "text/javascript; charset=utf-8", "drawio.js": "text/javascript; charset=utf-8", "viewer.css": "text/css; charset=utf-8" };
 // A request names an asset; it never supplies a path. The files served are exactly these constants, found by an exact Map lookup,
 // so a name like "constructor" or "__proto__" finds nothing and no request text reaches the filesystem.
 const ASSET_FILES = new Map(Object.entries(ASSETS).map(([name, type]) => [name, { path: join(VIEWER, name), type }]));

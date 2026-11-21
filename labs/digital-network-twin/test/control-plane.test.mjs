@@ -597,7 +597,7 @@ browserTest("in a browser: the Live readiness panel shows three separate verdict
 test("static files: only the named assets are served, and no request text reaches the filesystem", async () => {
   const t = await service();
   try {
-    for (const path of ["/index.html", "/app.js", "/viewer.css", "/scenario.js", "/sdwan.js", "/operate.js"]) assert.equal((await fetch(`${t.base}${path}`)).status, 200, path);
+    for (const path of ["/index.html", "/app.js", "/viewer.css", "/scenario.js", "/journey.js", "/sdwan.js", "/operate.js"]) assert.equal((await fetch(`${t.base}${path}`)).status, 200, path);
     for (const path of ["/constructor", "/__proto__", "/toString", "/hasOwnProperty", "/valueOf", "/..%2Fserver%2Fmain.mjs", "/%2e%2e/package.json", "/learner.mjs", "/serve.mjs", "/server/app.mjs", "/app.js%00.png"]) {
       const res = await fetch(`${t.base}${path}`);
       assert.equal(res.status, 404, `${path} -> ${res.status}`);

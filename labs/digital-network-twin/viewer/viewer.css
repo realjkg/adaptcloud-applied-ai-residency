@@ -55,3 +55,21 @@ a.button:hover { border-color: var(--accent); }
 #control-list { max-height: 220px; overflow: auto; }
 
 .diff { margin: 0; padding: 8px; border: 1px solid var(--line); border-radius: 6px; overflow: auto; max-height: 200px; font-size: 12px; white-space: pre; }
+
+.steps { list-style: none; margin: 8px 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 6px; }
+.steps button { width: 100%; text-align: left; display: grid; }
+.steps button[aria-current="step"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.checks li { padding: 4px 6px; border-left: 4px solid var(--line); }
+.checks li[data-status="pass"] { border-left-color: #2e7d32; }
+.checks li[data-status="fail"] { border-left-color: var(--finding); }
+.scroll { overflow-x: auto; max-height: 320px; overflow-y: auto; }
+.badge[data-state="passed"] { color: #2e7d32; border-color: #2e7d32; }
+.badge[data-state="running"] { color: var(--accent); border-color: var(--accent); }
+.badge[data-state="review"] { color: #9a6700; border-color: #9a6700; }
+/* The side panel is narrow, so a result table reads as one small card per row: the label, then its value. */
+.scroll table, .scroll tbody, .scroll tr, .scroll td { display: block; }
+.scroll thead { position: absolute; left: -9999px; }
+.scroll tr { border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; margin: 0 0 6px; }
+.scroll td { border: 0; padding: 2px 0; overflow-wrap: anywhere; }
+.scroll td::before { content: attr(data-label) ": "; color: var(--muted); }

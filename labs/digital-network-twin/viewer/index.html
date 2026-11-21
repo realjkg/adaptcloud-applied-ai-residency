@@ -73,6 +73,14 @@
         <p role="status" aria-live="polite"></p>
       </section>
 
+      <section id="journey" hidden>
+        <h2>Guided journey</h2>
+        <p class="note">Build, verify, report, and export, from start to finish, without a command line. Each job runs on the server against the synthetic twin and shows its result here.</p>
+        <nav data-journey-steps aria-label="Journey steps"></nav>
+        <div data-journey-body class="stack"></div>
+        <p role="status" aria-live="polite"></p>
+      </section>
+
       <section id="maintenance" hidden>
         <h2>Maintenance scenario</h2>
         <p class="note">Change a health monitor, preview which members it would take out of the pool, deploy to the simulator, and restore a known-good revision. The simulator's backends are fixed fixtures held by the server.</p>
@@ -112,5 +120,6 @@
   <script type="module" src="app.js"></script>
   <script type="module" src="sdwan.js"></script>
   <script type="module" src="scenario.js"></script>
+  <script type="module" src="journey.js"></script>
 </body>
 </html>

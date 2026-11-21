@@ -72,6 +72,8 @@ test("the browser can list, run, and read back each read-only job, and the answe
     assert.match(partial.headline, /through stage 03/);
 
     const asbuilt = await run("asbuilt");
+    assert.equal(asbuilt.ok, true, "the job ran");
+    assert.equal(asbuilt.attention, "1 requirement is unmet", "and the finding is carried separately");
     assert.match(asbuilt.headline, /^10 met, 1 unmet, 4 indeterminable, 1 attested, 1 need attestation/, "same counts the demo runbook claims");
     const report = asbuilt.blocks.find((b) => b.type === "file");
     assert.equal(report.text, readFileSync(new URL("../docs/ASBUILT_REPORT.md", import.meta.url), "utf8"), "the browser's report is the committed report");
@@ -180,4 +182,80 @@ test("a job that throws gives the person a plain failure and leaks no internal m
   const r = await tasks.run({ subject: "u", roles: ["operator"], labId: "lab-a" }, "boom");
   assert.equal(r.run.ok, false);
   assert.ok(!JSON.stringify(r).includes("secret"), "the internal message is not passed on");
+});
+
+// ---- in a browser, start to finish
+import { browserTest, playwright } from "./browser.mjs";
+
+browserTest("in a browser: an operator runs the whole journey from one button and downloads the results; a viewer can read but not run; the page draws results as text, never as markup", async () => {
+  const t = await service();
+  const base = `http://127.0.0.1:${t.svc.app.address().port}`;
+  const browser = await playwright.chromium.launch();
+  try {
+    const errors = [];
+    const open = async (persona, accept = false) => {
+      const context = await browser.newContext({ acceptDownloads: accept });
+      const page = await context.newPage();
+      page.on("pageerror", (e) => errors.push(e.message));
+      page.on("console", (m) => { if (m.type() === "error" && !/status of (401|403|404|409|422)/.test(m.text())) errors.push(m.text()); });
+      await page.goto(base);
+      await page.locator(`[data-persona="${persona}"]`).click();
+      await page.waitForSelector("#journey:not([hidden]) [data-step]");
+      return page;
+    };
+
+    const viewer = await open("viewer");
+    assert.equal(await viewer.locator("#journey [data-action]").count(), 0, "a viewer sees no Run buttons");
+    assert.match(await viewer.locator("#journey").textContent(), /needs the operator or administrator role/);
+
+    const op = await open("operator", true);
+    assert.deepEqual(await op.locator("#journey [data-step]").evaluateAll((els) => els.map((e) => e.getAttribute("data-step"))), STEPS.map((s) => s.id), "the step bar shows the journey in order");
+    assert.match(await op.locator("#journey [data-step='build']").textContent(), /Not run, next/, "it says where to go next");
+
+    await op.locator("[data-action='run-all']").click();
+    await op.waitForFunction(() => /Every step (passed|ran)/.test(document.querySelector("#journey [role='status']").textContent), null, { timeout: 30000 });
+    for (const step of STEPS) {
+      await op.locator(`#journey [data-step='${step.id}']`).click();
+      const state = await op.locator(`#journey [data-step='${step.id}']`).textContent();
+      assert.match(state, step.id === "report" ? /Needs review/ : /Passed/, `${step.id} finished`);
+    }
+    await op.locator("#journey [data-step='report']").click();
+    assert.match(await op.locator("#journey [data-task='asbuilt']").textContent(), /10 met, 1 unmet, 4 indeterminable/);
+    assert.match(await op.locator("#journey [data-task='asbuilt'] [data-field='attention']").textContent(), /Needs review: 1 requirement is unmet/, "an unmet requirement is flagged for a person, not hidden and not called a failure");
+    assert.ok(await op.locator("#journey [data-task='asbuilt'] table tbody tr").count() >= 15, "the verdicts are a table, one row per requirement");
+    const [report] = await Promise.all([op.waitForEvent("download"), op.locator("[data-download='asbuilt-report.md']").click()]);
+    assert.equal(report.suggestedFilename(), "asbuilt-report.md");
+    await op.locator("#journey [data-step='export']").click();
+    const [diagram] = await Promise.all([op.waitForEvent("download"), op.locator("[data-download='twin-topology.drawio']").click()]);
+    assert.equal(diagram.suggestedFilename(), "twin-topology.drawio");
+
+    // A choice made before a redraw is kept, and a closed-list job runs through the page.
+    await op.locator("#journey [data-step='verify']").click();
+    await op.locator("#journey [data-task='health'] select").selectOption("03");
+    await op.evaluate(() => document.querySelector("#operate-root").append(document.createElement("span")));
+    await op.waitForTimeout(400);
+    assert.equal(await op.locator("#journey [data-task='health'] select").inputValue(), "03");
+    await op.locator("#journey [data-task='health'] [data-action='run']").click();
+    await op.waitForFunction(() => /through stage 03/.test(document.querySelector("#journey [data-task='health']").textContent));
+
+    // A viewer in the same lab sees the same latest results, and the other lab sees none.
+    await viewer.reload();
+    await viewer.waitForSelector("#journey:not([hidden]) [data-step]");
+    await viewer.locator("#journey [data-step='build']").click();
+    assert.match(await viewer.locator("#journey [data-task='check']").textContent(), /Passed/);
+    const other = await open("operator-b");
+    assert.match(await other.locator("#journey [data-task='check']").textContent(), /Not run/, "another lab starts clean");
+
+    // Text from a result is drawn as text. A job that returns markup shows it literally and creates no element.
+    await op.evaluate(() => { window.__probe = 0; });
+    assert.equal(await op.locator("#journey img, #journey script, #journey iframe").count(), 0);
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); t.close(); }
+});
+
+test("results are drawn with text only: the journey page has no markup sinks and no way to run anything but a named job", () => {
+  const src = readFileSync(new URL("../viewer/journey.js", import.meta.url), "utf8").replace(/\/\/.*$/gm, "");
+  assert.ok(!/innerHTML|outerHTML|insertAdjacentHTML|document\.write|\beval\s*\(|new Function/.test(src));
+  assert.ok(/\/api\/tasks\/\$\{task\.id\}\/run/.test(src), "it starts a job by name");
+  assert.ok(!/command|exec|spawn/.test(src), "it has no notion of a command");
 });

@@ -8,7 +8,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const ASSETS = { "index.html": "text/html; charset=utf-8", "app.js": "text/javascript; charset=utf-8", "render.js": "text/javascript; charset=utf-8", "layout.js": "text/javascript; charset=utf-8", "snapshot.js": "text/javascript; charset=utf-8", "drawio.js": "text/javascript; charset=utf-8", "operate.js": "text/javascript; charset=utf-8", "sdwan.js": "text/javascript; charset=utf-8", "scenario.js": "text/javascript; charset=utf-8", "viewer.css": "text/css; charset=utf-8" };
+const ASSETS = { "index.html": "text/html; charset=utf-8", "app.js": "text/javascript; charset=utf-8", "render.js": "text/javascript; charset=utf-8", "layout.js": "text/javascript; charset=utf-8", "snapshot.js": "text/javascript; charset=utf-8", "drawio.js": "text/javascript; charset=utf-8", "operate.js": "text/javascript; charset=utf-8", "sdwan.js": "text/javascript; charset=utf-8", "scenario.js": "text/javascript; charset=utf-8", "journey.js": "text/javascript; charset=utf-8", "viewer.css": "text/css; charset=utf-8" };
 // Exact Map lookups of constant paths: no request text reaches the filesystem.
 const ASSET_FILES = new Map(Object.entries(ASSETS).map(([name, type]) => [name, { path: join(HERE, name), type }]));
 const SNAPSHOT_FILE = /^[A-Za-z0-9._-]+\.json$/;

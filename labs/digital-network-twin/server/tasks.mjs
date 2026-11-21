@@ -93,7 +93,9 @@ export const TASKS = [
       const result = evaluateAsBuilt({ requirements, config, attestations });
       const c = result.claim.counts;
       return {
-        ok: c.unmet === 0,
+        // The job ran and produced a claim, so it succeeded. An unmet requirement is a finding for a person, not a failed job.
+        ok: true,
+        attention: c.unmet > 0 ? `${c.unmet} requirement${c.unmet === 1 ? " is" : "s are"} unmet` : null,
         headline: `${c.met} met, ${c.unmet} unmet, ${c.indeterminable} indeterminable, ${c.attested} attested, ${c.needs_attestation} need attestation (of ${c.total}).`,
         blocks: [
           table(["Requirement", "Verdict", "Why"], result.results.map((r) => [r.id, r.verdict, r.reason])),
@@ -143,7 +145,7 @@ export function createTasks({ audit, now = () => new Date(), inputs = null, jobs
       const mine = history.get(labId) ?? [];
       return [...byId.values()].map((t) => {
         const last = mine.find((r) => r.taskId === t.id) ?? null;
-        return { id: t.id, step: t.step, title: t.title, summary: t.summary, writes: t.writes, input: t.input ? { name: t.input.name, label: t.input.label, choices: choicesOf(t), optional: t.input.optional === true } : null, last: last ? { runId: last.runId, ok: last.ok, at: last.at, by: last.by } : null };
+        return { id: t.id, step: t.step, title: t.title, summary: t.summary, writes: t.writes, input: t.input ? { name: t.input.name, label: t.input.label, choices: choicesOf(t), optional: t.input.optional === true } : null, last: last ? { runId: last.runId, ok: last.ok, attention: last.attention, at: last.at, by: last.by } : null };
       });
     },
     history(user) { const labId = lab(user); return labId ? (history.get(labId) ?? []).map(({ blocks, ...rest }) => rest) : null; },
@@ -177,7 +179,7 @@ export function createTasks({ audit, now = () => new Date(), inputs = null, jobs
         outcome = { ok: false, headline: "The job could not finish.", blocks: [] };
       } finally { running.delete(key); }
       counter += 1;
-      const record = { runId: `RUN-${String(counter).padStart(6, "0")}`, taskId: task.id, title: task.title, ok: outcome.ok === true, headline: String(outcome.headline ?? ""), at: started.toISOString(), by: user.subject, input: clean, blocks: outcome.blocks ?? [] };
+      const record = { runId: `RUN-${String(counter).padStart(6, "0")}`, taskId: task.id, title: task.title, ok: outcome.ok === true, headline: String(outcome.headline ?? ""), attention: typeof outcome.attention === "string" ? outcome.attention.slice(0, 200) : null, at: started.toISOString(), by: user.subject, input: clean, blocks: outcome.blocks ?? [] };
       const mine = history.get(labId) ?? [];
       mine.unshift(record);
       history.set(labId, mine.slice(0, MAX_HISTORY));
