@@ -132,6 +132,25 @@ Why it happens: the older backend (app-2) does not have a `/healthz` page, so it
 | Sign in as **Vera Viewer** | The box shows the revisions and the pool, but no **Preview change** and no restore buttons. |
 | In window 2, as **Olga Operator** | Revision 1 only, pool `available`. Lab A's deploys are not visible. |
 
+## Journey 3: the guided journey (lab A, window 1)
+
+The **Guided journey** box sits in the left column once you are signed in. It replaces the command line for the build, verify, rehearse, report and export steps. Sign in as **Omar Operator (operator)**.
+
+| Do this | Expect |
+|---|---|
+| Look at the step bar | Five steps in order: Build, Verify, Rehearse, Report, Export. Each says "Not run", and Build says "next" |
+| Press **Run the whole journey** | Each job runs in turn. Build, Verify, Rehearse and Export end as Passed. Report ends as **Needs review** |
+| Open **Report** | The as-built claim says 10 met, 1 unmet, 4 indeterminable, 1 attested, 1 need attestation, and "Needs review: 1 requirement is unmet." The what-if says the first problems are the address pool at 2 days a week, then Wi-Fi at 4 |
+| Press **Download asbuilt-report.md** | A file is saved. Its text matches `docs/ASBUILT_REPORT.md` |
+| Open **Export**, press **Download twin-topology.drawio** | A draw.io file is saved. Open it in draw.io to see the diagram |
+| Open **Verify**, pick stage 03 in the health check, press **Run** | "Healthy through stage 03. Later stages were not checked." |
+| Sign in as **Vera Viewer (viewer)** in another window | The same latest results are readable, and there are no Run buttons |
+| Sign in as **Olga Operator (operator-b)** | Lab B starts clean: every job says "Not run" |
+
+"Needs review" means the job ran and found something a person should look at. It is not a failed job. A job that cannot run, or whose checks fail, says Failed and the whole-journey button stops there.
+
+Jobs that were command-line only and stay that way: applying a change through the guarded gate (use the change request box instead, which needs a second person), writing Terraform files to disk, capturing a snapshot (use Collect now), and the journal volume check (it needs a real shared volume).
+
 ## Quick look: SD-WAN panel
 
 The **SD-WAN simulation** box is in the left column once you are signed in (any user). It takes numbers you type, so it checks the decision rules, not a measurement. The starting limits are latency 100, jitter 20, loss 1, and both lines start healthy (40, 5, 0.1).

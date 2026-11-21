@@ -6,6 +6,10 @@ import { join } from "node:path";
 import { createSimulatorService } from "../server/learner.mjs";
 import { createTasks, STEPS, TASKS } from "../server/tasks.mjs";
 import { can } from "../server/roles.mjs";
+import { plan } from "../tools/twin-sequence.mjs";
+import { loadStages } from "../tools/twin-sequence.mjs";
+import { renderMermaid } from "../tools/render-topology.mjs";
+import { buildChangeSet } from "../tools/render-iac.mjs";
 
 async function service() {
   const dir = mkdtempSync(join(tmpdir(), "twin-tasks-"));
@@ -92,6 +96,47 @@ test("the browser can list, run, and read back each read-only job, and the answe
     assert.equal(detail.status, 200);
     assert.equal(detail.body.run.blocks.length, asbuilt.blocks.length);
   } finally { t.close(); }
+});
+
+test("the rest of the command-line jobs run from the browser too, and agree with the scripts", async () => {
+  const t = await service();
+  try {
+    const op = await t.client("operator");
+    const run = async (id) => (await op.call("POST", `/api/tasks/${id}/run`, {})).body.run;
+
+    const order = await run("plan");
+    assert.equal(order.ok, true);
+    assert.deepEqual(order.blocks[0].rows.map((r) => r[1].split(" ")[0]), plan(loadStages()).map((x) => x.id), "the same order the command line prints");
+
+    const topo = await run("topology");
+    assert.match(topo.headline, /^\d+ devices and \d+ connections/);
+    assert.equal(topo.blocks.find((b) => b.type === "file").text, renderMermaid(JSON.parse(readFileSync(new URL("../config/twin-config.json", import.meta.url), "utf8"))));
+
+    const trip = await run("roundtrip");
+    assert.equal(trip.ok, true);
+    assert.ok(trip.blocks[0].items.every((i) => i.status === "pass"));
+    assert.equal(TASKS.find((x) => x.id === "roundtrip").writes, "simulated", "it says it writes, and only to a simulated tenant");
+
+    const demo = await run("demo");
+    assert.equal(demo.ok, true);
+    assert.equal(demo.headline, "All 15 demo steps behave as the runbook says.");
+
+    const rto = await run("rto");
+    assert.equal(rto.ok, true, "the what-if ran");
+    assert.equal(rto.attention, "first problem: address pool at 2 days a week, then Wi-Fi at 4 days a week", "the finding the runbook names, flagged for a person");
+
+    const iac = await run("iac-preview");
+    assert.match(iac.headline, /^\d+ objects would be created across 4 vendors/);
+    assert.equal(JSON.parse(iac.blocks.find((b) => b.type === "file").text).length, buildChangeSet(JSON.parse(readFileSync(new URL("../config/twin-config.json", import.meta.url), "utf8"))).length);
+  } finally { t.close(); }
+});
+
+test("the rehearsal and the command-line tool share one implementation, and the browser's job list never loads the live transport", async () => {
+  const cli = await import("../tools/provision-cli.mjs");
+  const mine = await import("../tools/roundtrip.mjs");
+  assert.equal(cli.runRoundtrip, mine.runRoundtrip);
+  const src = readFileSync(new URL("../server/tasks.mjs", import.meta.url), "utf8");
+  assert.ok(!/provision-cli|tools\/live|tools\/collect/.test(src));
 });
 
 test("a job reports a problem it finds, instead of reporting success", async () => {

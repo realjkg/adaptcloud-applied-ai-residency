@@ -17,6 +17,11 @@ import { applySequence, checkGraph, loadStages, plan } from "../tools/twin-seque
 import { runAgent } from "../tools/health-agent.mjs";
 import { evaluate as evaluateAsBuilt, renderReport as renderAsBuiltReport } from "../tools/asbuilt.mjs";
 import { buildSnapshot } from "../tools/snapshot.mjs";
+import { buildChangeSet, assertHealthy } from "../tools/render-iac.mjs";
+import { buildGraph, renderMermaid } from "../tools/render-topology.mjs";
+import { runRoundtrip } from "../tools/roundtrip.mjs";
+import { sweep, validateScenario } from "../tools/rto-wifi.mjs";
+import { runDemoChecks } from "../tools/demo-check.mjs";
 import { validateSnapshot } from "../viewer/snapshot.js";
 import { snapshotToDrawio } from "../viewer/drawio.js";
 
@@ -40,8 +45,9 @@ const file = (name, mime, content) => ({ type: "file", name, mime, text: clip(co
 export const STEPS = [
   { id: "build", title: "Build", about: "See the order the twin is built in and confirm the plan holds together." },
   { id: "verify", title: "Verify", about: "Build the twin stage by stage and confirm every stage's health checks pass." },
+  { id: "rehearse", title: "Rehearse", about: "Practise a change on a simulated tenant that lives only in memory, and confirm the whole demo still behaves as the runbook says." },
   { id: "report", title: "Report", about: "Claim against the as-built requirements, with a verdict for each one." },
-  { id: "export", title: "Export", about: "Get the diagram out as a draw.io file for draw.io, Lucidchart, or Visio." }
+  { id: "export", title: "Export", about: "Get the diagram out as a draw.io file for draw.io, Lucidchart, or Visio, and preview the changes a build would make." }
 ];
 
 /**
@@ -49,6 +55,27 @@ export const STEPS = [
  * list it must come from. Run functions receive the server-held inputs and return { ok, headline, blocks }.
  */
 export const TASKS = [
+  {
+    id: "plan", step: "build", title: "Show the build order", writes: "none",
+    summary: "Lists the stages in the order they are built, with what each one needs and what it makes.",
+    run: ({ stages }) => {
+      const ordered = plan(stages);
+      return {
+        ok: ordered.length === stages.length,
+        headline: ordered.length === stages.length ? `${ordered.length} stages, in build order.` : `Only ${ordered.length} of ${stages.length} stages can be ordered; the rest can never run.`,
+        blocks: [table(["Order", "Stage", "Needs", "Makes"], ordered.map((st, i) => [i + 1, `${st.id} ${st.title}`, st.requires.join(", ") || "nothing", st.produces.join(", ")]))]
+      };
+    }
+  },
+  {
+    id: "topology", step: "build", title: "Draw the topology", writes: "none",
+    summary: "Draws every device and connection the twin currently describes, as a Mermaid diagram you can paste into documentation.",
+    run: ({ config }) => {
+      const graph = buildGraph(config);
+      const diagram = renderMermaid(config);
+      return { ok: graph.nodes.length > 0, headline: `${graph.nodes.length} devices and ${graph.edges.length} connections.`, blocks: [file("topology.mmd", "text/plain", diagram), text(diagram)] };
+    }
+  },
   {
     id: "check", step: "build", title: "Check the build plan", writes: "none",
     summary: "Looks for stages that need something no stage makes, stages that make the same thing twice, and loops.",
@@ -87,6 +114,47 @@ export const TASKS = [
     }
   },
   {
+    id: "roundtrip", step: "rehearse", title: "Rehearse a change and undo it", writes: "simulated",
+    summary: "Applies the whole change set to a simulated tenant, then destroys it, and confirms the tenant is exactly as it started and anything it did not create was left alone. Nothing real is touched.",
+    run: async ({ config }, _params, { now }) => {
+      const r = await runRoundtrip(config, now());
+      const items = [
+        { label: "The change was planned, applied, and destroyed", status: r.ok ? "pass" : "fail" },
+        { label: "The tenant is identical before and after", status: r.symmetric ? "pass" : "fail" },
+        { label: "Objects the twin did not create were left alone", status: r.unmanagedSurvived ? "pass" : "fail" }
+      ];
+      return { ok: Boolean(r.ok && r.symmetric && r.unmanagedSurvived), headline: r.ok ? `${r.created} objects created and ${r.deleted} deleted on the simulated tenant, which ended unchanged.` : "The rehearsal did not complete.", blocks: [checks(items)] };
+    }
+  },
+  {
+    id: "demo", step: "rehearse", title: "Check the demo runbook", writes: "none",
+    summary: "Runs every step the working-session runbook claims, offline, and says which ones no longer behave as described.",
+    run: async () => {
+      const rows = await runDemoChecks();
+      const failed = rows.filter((r) => !r.ok).length;
+      return { ok: failed === 0, headline: failed === 0 ? `All ${rows.length} demo steps behave as the runbook says.` : `${failed} of ${rows.length} demo steps do not match the runbook.`, blocks: [checks(rows.map((r) => ({ label: r.step, status: r.ok ? "pass" : "fail", detail: r.detail })))] };
+    }
+  },
+  {
+    id: "rto", step: "report", title: "Return-to-office what-if", writes: "none",
+    summary: "Shows what happens to addresses, Wi-Fi, and the internet link as more people come on site each week, and where the first problem appears.",
+    run: () => {
+      const scenario = load("scenarios", "rto-wifi.json");
+      const problems = validateScenario(scenario);
+      if (problems.length > 0) return { ok: false, headline: "The scenario is not valid.", blocks: [checks(problems.map((p) => ({ label: p, status: "fail" })))] };
+      const rows = sweep(scenario);
+      const dhcp = rows.find((r) => r.dhcpStatus === "over");
+      const wifi = rows.find((r) => r.zonesOver > 0);
+      const first = [dhcp && `address pool at ${dhcp.days} day${dhcp.days === 1 ? "" : "s"} a week`, wifi && `Wi-Fi at ${wifi.days} days a week`].filter(Boolean);
+      return {
+        ok: true,
+        attention: first.length ? `first problem: ${first.join(", then ")}` : null,
+        headline: first.length ? `First problems: ${first.join(", then ")}.` : "No problem appears at any office day count.",
+        blocks: [table(["Days a week", "People on site (peak)", "Address pool", "Wi-Fi zones over", "Internet link"], rows.map((r) => [r.days, r.peakOnSite, `${r.dhcpStatus} (${Math.round(r.dhcpUtilization * 100)}%)`, r.zonesOver, `${r.wanStatus} (${Math.round(r.wanUtilization * 100)}%)`]))]
+      };
+    }
+  },
+  {
     id: "asbuilt", step: "report", title: "As-built claim", writes: "none",
     summary: "Compares the twin with the customer's as-built requirements. Each requirement is Met, Unmet, Indeterminable, Attested, or Needs attestation.",
     run: ({ config, requirements, attestations }) => {
@@ -102,6 +170,15 @@ export const TASKS = [
           file("asbuilt-report.md", "text/markdown", renderAsBuiltReport(result))
         ]
       };
+    }
+  },
+  {
+    id: "iac-preview", step: "export", title: "Preview the changes a build would make", writes: "none",
+    summary: "Lists every object the build would create, by vendor, and gives you the change set as a file. It only shows the list; it writes no Terraform and applies nothing.",
+    run: ({ config }) => {
+      try { assertHealthy(config); } catch { return { ok: false, headline: "The twin is not healthy, so no change set was made. Run the stage health checks first.", blocks: [] }; }
+      const ops = buildChangeSet(config);
+      return { ok: true, headline: `${ops.length} objects would be created across ${new Set(ops.map((o) => o.vendor)).size} vendors.`, blocks: [table(["Vendor", "Object", "Name", "Action"], ops.map((o) => [o.vendor, o.object, o.name, o.action])), file("changeset.json", "application/json", `${JSON.stringify(ops, null, 2)}\n`)] };
     }
   },
   {

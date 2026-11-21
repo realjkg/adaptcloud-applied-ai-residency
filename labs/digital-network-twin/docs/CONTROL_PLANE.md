@@ -36,8 +36,8 @@ without the settings below. Palo Alto and Meraki now have live write adapters th
 
 | Role | May |
 |---|---|
-| viewer | read snapshots and changes |
-| operator | also collect now, request changes, execute an approved change |
+| viewer | read snapshots, changes, and the results of guided-journey jobs |
+| operator | also collect now, request changes, execute an approved change, start guided-journey jobs |
 | approver | approve or reject a change, read the audit log |
 | admin | schedule, hold, kill switch, collect, request, execute, read the audit log |
 
@@ -80,6 +80,19 @@ Two server-side registries: synthetic targets (`server/simulator-targets.mjs`, r
   - **If the job id cannot be saved.** The commit was accepted but nothing durable says so. The operation stops as `uncertain` with reason `commit_job_not_recorded`, the job id is shown in the result and audit log so a person can check the firewall, and polling and completion are not reported. A retry returns the existing operation, and reconcile answers "intent without job id: needs a person". Nothing is sent to the firewall again.
   - **No intent is not a clean candidate.** "No commit was submitted" means the journaled path never reached the commit. The candidate edit happens earlier, so an operation that stopped there may still have a staged change. The result carries `candidateMayExist`, reconcile answers `candidate_edit_may_be_staged`, and the page says to inspect or clear the candidate on the firewall.
 - Live SD-WAN is never implied by a firewall capability: a live target that lists it is refused at load.
+
+## Guided journey (jobs started from the browser)
+
+`server/tasks.mjs` holds a fixed list of named jobs: the build order, the topology drawing, the plan check, building the twin in order, the stage health checks, a rehearsal on a simulated tenant, the demo runbook check, the return-to-office what-if, the as-built claim, a preview of the change set, and the draw.io export. The browser starts one with `POST /api/tasks/{job}/run`.
+
+- The request carries a job name and, for the stage health check only, one stage from a closed list. Anything else is refused with 422. There is no command, path, or configuration in a request.
+- Jobs run inside the server by calling the same functions the command-line scripts call. There is no shell, no child process, no file written to the repository, and no network call.
+- Running needs `task:run` (operator, admin). Reading the list and the results needs `task:read` (everyone signed in). A refused run is audited as a denial; every run is audited with the job, the outcome, and the person.
+- Results are returned as plain blocks (checks, tables, files, text), and the page draws them as text only. The history is kept in memory for each lab, newest 50, and one job cannot run twice at once in a lab.
+- A job result has `ok` (the job ran and its checks held) and an optional `attention` note (the job ran and found something for a person, for example an unmet requirement). The page shows the second as "Needs review".
+- A job that could reach a real vendor does not belong in this list. Applying a change, writing Terraform, capturing a snapshot, and the journal volume check are not in it.
+
+Details for testers are in `docs/MANUAL_UI_GUIDE.md`, Journey 3.
 
 ## Maintenance scenario
 
