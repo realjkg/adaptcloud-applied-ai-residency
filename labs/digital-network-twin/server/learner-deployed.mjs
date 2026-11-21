@@ -37,7 +37,7 @@ export async function createLearnerDeployed({ settings, fetchImpl = globalThis.f
   try { oidc = createOidc({ config: { ...settings.oidc, redirectUri: `${settings.origin}/auth/callback` }, fetchImpl }); } catch { throw new DeploymentError("oidc_invalid"); }
 
   const core = await createLearnerCore({ dir: settings.dataDir, labs: settings.labs, now, deploymentId: settings.deploymentId ?? "learner-deployed" });
-  const app = createApp({ mode: "learner", origin: settings.origin, secureCookies: true, sessions: core.sessions, oidc, enrollment, groupRoles: settings.groupRoles, store: core.store, schedulerFor: core.schedulerFor, changes: core.changes, operations: core.operations, readiness: core.readiness, scenarios: core.scenarios, audit: core.audit, auditFilter: core.auditFilter, killSwitch: core.killSwitch });
+  const app = createApp({ mode: "learner", origin: settings.origin, secureCookies: true, sessions: core.sessions, oidc, enrollment, groupRoles: settings.groupRoles, store: core.store, schedulerFor: core.schedulerFor, changes: core.changes, operations: core.operations, readiness: core.readiness, scenarios: core.scenarios, tasks: core.tasks, audit: core.audit, auditFilter: core.auditFilter, killSwitch: core.killSwitch });
   return { app, ...core, enrollment };
 }
 

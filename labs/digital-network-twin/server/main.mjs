@@ -15,6 +15,7 @@ import { createCloudflareEdgeAdapter } from "./adapters/cloudflare.mjs";
 import { createMerakiAdapter } from "./adapters/meraki.mjs";
 import { createPaloAltoAdapter } from "./adapters/paloalto.mjs";
 import { createApp } from "./app.mjs";
+import { createTasks } from "./tasks.mjs";
 import { createCommitJournal } from "./commit-journal.mjs";
 import { createAudit } from "./audit.mjs";
 import { createChangeService } from "./changes.mjs";
@@ -84,7 +85,7 @@ export async function createLiveService({ settings, env = process.env, fetchImpl
   // The storage runner comes from deployment glue: a runner that starts two separate test tasks on the same access point and
   // reports kind "ecs-efs"). None is built here, so without one the panel says the check cannot be run.
   const readiness = createReadiness({ deploymentId: settings.deploymentId ?? createHash("sha256").update(`${settings.origin}|${settings.dataDir}`).digest("hex").slice(0, 16), storageRunner: settings.storageRunner ?? null, operations, audit, now, file: join(settings.dataDir, "readiness.json") });
-  const app = createApp({ mode: "live", origin: settings.origin, secureCookies: true, sessions, oidc, groupRoles: settings.groupRoles, store, scheduler, changes, operations, readiness, audit, killSwitch });
+  const app = createApp({ mode: "live", origin: settings.origin, secureCookies: true, sessions, oidc, groupRoles: settings.groupRoles, store, scheduler, changes, operations, readiness, tasks: createTasks({ audit, now }), audit, killSwitch });
   return { app, store, audit, scheduler, changes, operations, readiness, sessions, killSwitch };
 }
 

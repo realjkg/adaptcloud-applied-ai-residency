@@ -29,7 +29,7 @@ export const PERSONAS = {
 /** Builds the local test service on a directory. Used by tests and by `npm run control:learner:local`. */
 export async function createSimulatorService({ dir, origin, now = () => new Date() }) {
   const core = await createLearnerCore({ dir, labs: LABS, now });
-  const app = createApp({ mode: "simulator", origin, sessions: core.sessions, personas: PERSONAS, store: core.store, schedulerFor: core.schedulerFor, changes: core.changes, operations: core.operations, readiness: core.readiness, scenarios: core.scenarios, audit: core.audit, auditFilter: core.auditFilter, killSwitch: core.killSwitch });
+  const app = createApp({ mode: "simulator", origin, sessions: core.sessions, personas: PERSONAS, store: core.store, schedulerFor: core.schedulerFor, changes: core.changes, operations: core.operations, readiness: core.readiness, scenarios: core.scenarios, tasks: core.tasks, audit: core.audit, auditFilter: core.auditFilter, killSwitch: core.killSwitch });
   return { app, ...core, scheduler: core.schedulerFor({ labId: "lab-a", subject: "persona:operator" }), transport: core.transportFor("lab-a") };
 }
 

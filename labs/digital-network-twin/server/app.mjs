@@ -34,7 +34,7 @@ const CHG = /^CHG-[0-9A-F]{10}$/;
  * The lab a session belongs to is resolved on the server at sign-in (persona table, enrollment, or "live") and stored in the
  * session. Nothing in a request body or header can set it. A session with no lab can reach no lab data.
  */
-export function createApp({ mode, origin, secureCookies = false, sessions, oidc = null, enrollment = null, personas = {}, groupRoles = {}, store, scheduler, schedulerFor = null, changes, operations = null, readiness = null, scenarios = null, audit, auditFilter = null, collectNow, killSwitch }) {
+export function createApp({ mode, origin, secureCookies = false, sessions, oidc = null, enrollment = null, personas = {}, groupRoles = {}, store, scheduler, schedulerFor = null, changes, operations = null, readiness = null, scenarios = null, tasks = null, audit, auditFilter = null, collectNow, killSwitch }) {
   if (!["simulator", "learner", "live"].includes(mode)) throw new Error("mode must be simulator, learner, or live");
   if ((mode === "live" || mode === "learner") && !oidc) throw new Error(`${mode} mode requires OpenID Connect sign-in`);
   if (mode === "learner" && typeof enrollment?.resolve !== "function") throw new Error("learner mode requires enrollment");
@@ -139,6 +139,15 @@ export function createApp({ mode, origin, secureCookies = false, sessions, oidc 
         if (req.method === "POST" && parts[3] === "plan" && parts.length === 4) { const r = await scenarios.plan(user, body); return json(code(r, 201), r); }
         if (req.method === "POST" && parts[3] === "deploy" && parts.length === 4) { const r = await scenarios.deploy(user, body.planId); return json(code(r), r); }
         if (req.method === "GET" && parts[3] === "plans" && parts.length === 5) { if (!(await need("scenario:read"))) return; const p = scenarios.getPlan(user, parts[4]); return p ? json(200, { plan: p }) : json(404, { ok: false, code: "not_found" }); }
+      }
+      if (parts[1] === "tasks" && tasks) {
+        const TASKID = /^[a-z][a-z0-9-]{0,30}$/;
+        const RUNID = /^RUN-[0-9]{6}$/;
+        const code = (r) => (r.ok ? 200 : r.code === "forbidden" ? 403 : r.code === "not_found" ? 404 : r.code === "already_running" ? 409 : 422);
+        if (req.method === "GET" && parts.length === 2) { if (!(await need("task:read"))) return; const list = tasks.list(user); return list ? json(200, { steps: tasks.steps(), tasks: list }) : json(404, { error: "not_found" }); }
+        if (req.method === "GET" && parts[2] === "runs" && parts.length === 3) { if (!(await need("task:read"))) return; const h = tasks.history(user); return h ? json(200, { runs: h }) : json(404, { error: "not_found" }); }
+        if (req.method === "GET" && parts[2] === "runs" && RUNID.test(parts[3] ?? "") && parts.length === 4) { if (!(await need("task:read"))) return; const r = tasks.get(user, parts[3]); return r ? json(200, { run: r }) : json(404, { error: "not_found" }); }
+        if (req.method === "POST" && TASKID.test(parts[2] ?? "") && parts[3] === "run" && parts.length === 4) { const r = await tasks.run(user, parts[2], body.input ?? {}); return json(code(r), r); }
       }
       if (parts[1] === "snapshots") {
         if (!(await need("snapshot:read"))) return;

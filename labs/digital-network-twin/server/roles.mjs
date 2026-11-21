@@ -16,6 +16,8 @@ const PERMISSIONS = {
   "operation:execute": ["operator", "admin"],
   "scenario:read": ["viewer", "operator", "approver", "admin"],
   "scenario:run": ["operator", "admin"],
+  "task:read": ["viewer", "operator", "approver", "admin"],
+  "task:run": ["operator", "admin"],
   "readiness:read": ["viewer", "operator", "approver", "admin"],
   "readiness:run": ["admin"],
   "schedule:manage": ["admin"],
