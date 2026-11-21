@@ -1,0 +1,140 @@
+#!/usr/bin/env node
+// Guarded provisioning against the simulated lab tenant. There is no live transport.
+//
+//   node tools/provision-cli.mjs roundtrip                       apply then destroy in one run and prove the tenant is unchanged
+//   node tools/provision-cli.mjs plan    --policy=<file>          dry run; prints the digest an approval must carry
+//   node tools/provision-cli.mjs approval-template <action> ...   prints an approval that is invalid until a human completes it
+//   node tools/provision-cli.mjs apply   --policy=<file> --approval=<file> --planned-digest=<hex>
+//   node tools/provision-cli.mjs destroy --policy=<file> --approval=<file>
+//
+// Common flags: --config=<file> --state=<file> --tenant=<id> --environment=lab
+//               --only=cloudflare/dns-record,f5/pool   narrow to exact vendor/object pairs (own digest, own approvals)
+// Set TWIN_PROVISION_KILL=1 to refuse everything.
+//
+// A policy with "transport": "live" uses the live adapters (Cloudflare DNS records and four F5 object kinds).
+// They are untested against a real system and are refused unless the policy carries the recorded authorization,
+// exact host allowlists, and credentials in the environment. See docs/PROVISIONING.md and
+// docs/adr/0001-live-provisioning-authorization.md.
+
+import { readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { LabTransport } from "./lab-transport.mjs";
+import { createLiveTransport } from "./live/transport.mjs";
+import { apply, destroy, plan, prepare, selectChangeSet } from "./provision.mjs";
+import { digestOf, stableStringify } from "./provision-policy.mjs";
+import { SIMULATION_POLICY } from "./simulation-policy.mjs";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const DEFAULT_CONFIG = join(HERE, "..", "config", "twin-config.json");
+const DEFAULT_STATE = ".twin-lab-state.json";
+
+export { SIMULATION_POLICY };
+
+import { runRoundtrip } from "./roundtrip.mjs";
+export { runRoundtrip };
+
+async function readJson(path) {
+  return JSON.parse(await readFile(path, "utf8"));
+}
+
+async function loadState(path) {
+  try {
+    return await readJson(path);
+  } catch {
+    return [];
+  }
+}
+
+export async function main(argv) {
+  const [command, ...rest] = argv;
+  const flag = (name) => rest.find((arg) => arg.startsWith(`${name}=`))?.slice(name.length + 1);
+  const killSwitch = process.env.TWIN_PROVISION_KILL === "1";
+
+  let config;
+  try {
+    config = await readJson(flag("--config") ?? DEFAULT_CONFIG);
+  } catch {
+    console.error("could not read the config as JSON");
+    return 2;
+  }
+
+  if (command === "roundtrip") {
+    const result = await runRoundtrip(config);
+    console.log(JSON.stringify(result, null, 2));
+    return result.ok && result.symmetric && result.unmanagedSurvived ? 0 : 1;
+  }
+
+  if (!["plan", "apply", "destroy", "approval-template"].includes(command)) {
+    console.error("usage: provision-cli.mjs roundtrip | plan | apply | destroy | approval-template <action>");
+    return 2;
+  }
+
+  const prepared = prepare(config);
+  if (!prepared.ok) {
+    console.log(JSON.stringify(prepared, null, 2));
+    return 1;
+  }
+  const target = { environment: flag("--environment") ?? "lab", tenantId: flag("--tenant") ?? "", owner: config.twinId };
+
+  // --only narrows the change set to exact vendor/object pairs. The subset has its own digest and its own approvals.
+  let changeset = prepared.changeset;
+  if (flag("--only")) {
+    try {
+      changeset = selectChangeSet(changeset, flag("--only").split(","));
+    } catch (error) {
+      console.error(error.message);
+      return 2;
+    }
+  }
+  const digest = digestOf(changeset);
+
+  if (command === "approval-template") {
+    const action = rest.find((arg) => !arg.startsWith("--")) ?? "";
+    // Deliberately invalid until a person fills in the approver and the time.
+    console.log(JSON.stringify({ ref: "REPLACE-WITH-TICKET-ID", approver: "", action, tenantId: target.tenantId, digest, approvedAt: "REPLACE-WITH-ISO-8601-TIMESTAMP-WITH-OFFSET" }, null, 2));
+    return 0;
+  }
+
+  let policy;
+  try {
+    policy = await readJson(flag("--policy") ?? "");
+  } catch {
+    console.error("a --policy file is required; start from config/provision-policy.example.json");
+    return 2;
+  }
+  const statePath = flag("--state") ?? DEFAULT_STATE;
+  // The policy names the transport. "live" builds the live transport, which still passes the gate before any call.
+  const live = policy?.transport === "live";
+  let transport;
+  try {
+    transport = live ? createLiveTransport({ policy }) : new LabTransport({ entries: await loadState(statePath) });
+  } catch (error) {
+    console.error(`could not build the transport: ${error.message}`);
+    return 2;
+  }
+  const base = { changeset, transport, policy, target, killSwitch };
+
+  let result;
+  if (command === "plan") {
+    result = await plan(base);
+  } else {
+    let approval;
+    try {
+      approval = flag("--approval") ? await readJson(flag("--approval")) : undefined;
+    } catch {
+      approval = null;
+    }
+    const now = new Date();
+    result = command === "apply"
+      ? await apply({ ...base, approval, plannedDigest: flag("--planned-digest"), now })
+      : await destroy({ ...base, approval, now });
+    if (result.ok && !live) await writeFile(statePath, `${JSON.stringify(transport.snapshot(), null, 2)}\n`);
+  }
+  console.log(JSON.stringify(result, null, 2));
+  return result.ok ? 0 : 1;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  process.exitCode = await main(process.argv.slice(2));
+}

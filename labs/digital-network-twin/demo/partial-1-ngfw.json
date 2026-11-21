@@ -1,0 +1,82 @@
+{
+  "twinId": "SYNTH-DEMO-PARTIAL",
+  "referenceDate": "2026-11-18",
+  "hostname": "app.lab.example",
+  "addressing": {
+    "origin": "198.51.100.2",
+    "originGateway": "198.51.100.1",
+    "dmzSubnet": "10.20.0.0/24",
+    "f5Self": "10.20.0.10",
+    "vip": "10.20.0.100",
+    "appSubnet": "10.30.0.0/24",
+    "branchWan": "198.51.100.40",
+    "branchLan": "10.40.0.0/24",
+    "mgmtSubnet": "10.99.0.0/24",
+    "panorama": "10.99.0.5",
+    "tunnelSubnet": "10.50.0.0/30"
+  },
+  "management": {
+    "permittedSources": [
+      "10.99.0.0/24"
+    ],
+    "protocols": [
+      "https",
+      "ssh"
+    ]
+  },
+  "paloalto": {
+    "zones": [
+      "untrust",
+      "dmz",
+      "app",
+      "management",
+      "vpn-branch"
+    ],
+    "interfaces": [
+      {
+        "name": "ethernet1/1",
+        "zone": "untrust",
+        "address": "198.51.100.2/24"
+      },
+      {
+        "name": "ethernet1/2",
+        "zone": "dmz",
+        "address": "10.20.0.2/24"
+      },
+      {
+        "name": "ethernet1/3",
+        "zone": "app",
+        "address": "10.30.0.1/24"
+      },
+      {
+        "name": "ethernet1/4",
+        "zone": "management",
+        "address": "10.99.0.1/24",
+        "managementProfile": {
+          "services": [
+            "https",
+            "ssh"
+          ],
+          "permittedSources": [
+            "10.99.0.0/24"
+          ]
+        }
+      },
+      {
+        "name": "tunnel.1",
+        "zone": "vpn-branch",
+        "address": "10.50.0.1/30"
+      }
+    ],
+    "routes": [
+      {
+        "destination": "0.0.0.0/0",
+        "nextHop": "198.51.100.1"
+      },
+      {
+        "destination": "10.30.0.0/24",
+        "nextHop": "ethernet1/3"
+      }
+    ]
+  }
+}

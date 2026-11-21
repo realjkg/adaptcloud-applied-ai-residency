@@ -1,0 +1,9 @@
+node_modules/
+.DS_Store
+*.log
+my-config.json
+provision-policy.json
+provision-policy.live.json
+.twin-lab-state.json
+approval-*.json
+*.client.json

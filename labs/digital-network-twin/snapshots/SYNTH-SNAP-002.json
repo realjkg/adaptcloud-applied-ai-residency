@@ -1,0 +1,213 @@
+{
+  "schemaVersion": 1,
+  "snapshotId": "SYNTH-SNAP-002",
+  "capturedAt": "2026-11-14T09:00:00Z",
+  "label": "Firewall and F5 added",
+  "synthetic": true,
+  "source": {
+    "kind": "synthetic-config",
+    "twinId": "SYNTH-DEMO-PARTIAL",
+    "access": [],
+    "plannedAccess": [
+      {
+        "vendor": "f5",
+        "level": "BIG-IP user with a read-only role",
+        "mode": "read-only"
+      },
+      {
+        "vendor": "paloalto",
+        "level": "firewall or Panorama administrator with a read-only role",
+        "mode": "read-only"
+      }
+    ]
+  },
+  "configDigest": "16df0d37b80ef310524c73af05854955f96306f583d3ec2ce4adfa23091e1db7",
+  "topologyDigest": "8aa9141b27ffb137d0d8ca7aa95a83fb8daf6c58f7bbaedf2f6e579ef33f570f",
+  "topology": {
+    "groups": [
+      {
+        "id": "ngfw",
+        "title": "Palo Alto NGFW",
+        "nodeIds": [
+          "z_untrust",
+          "z_dmz",
+          "z_app",
+          "z_management",
+          "z_vpn_branch"
+        ]
+      },
+      {
+        "id": "dc",
+        "title": "Data center",
+        "nodeIds": [
+          "vip",
+          "pool",
+          "m_10_30_0_11",
+          "m_10_30_0_12"
+        ]
+      },
+      {
+        "id": "mgmt",
+        "title": "Management",
+        "nodeIds": [
+          "panorama"
+        ]
+      }
+    ],
+    "nodes": [
+      {
+        "id": "z_untrust",
+        "lines": [
+          "zone untrust",
+          "ethernet1/1 198.51.100.2/24"
+        ],
+        "vendor": "paloalto",
+        "path": "paloalto.zones"
+      },
+      {
+        "id": "z_dmz",
+        "lines": [
+          "zone dmz",
+          "ethernet1/2 10.20.0.2/24"
+        ],
+        "vendor": "paloalto",
+        "path": "paloalto.zones"
+      },
+      {
+        "id": "z_app",
+        "lines": [
+          "zone app",
+          "ethernet1/3 10.30.0.1/24"
+        ],
+        "vendor": "paloalto",
+        "path": "paloalto.zones"
+      },
+      {
+        "id": "z_management",
+        "lines": [
+          "zone management",
+          "ethernet1/4 10.99.0.1/24"
+        ],
+        "vendor": "paloalto",
+        "path": "paloalto.zones"
+      },
+      {
+        "id": "z_vpn_branch",
+        "lines": [
+          "zone vpn-branch",
+          "tunnel.1 10.50.0.1/30"
+        ],
+        "vendor": "paloalto",
+        "path": "paloalto.zones"
+      },
+      {
+        "id": "vip",
+        "lines": [
+          "F5 virtual server",
+          "10.20.0.100:443",
+          "TLSv1.2",
+          "SNAT automap"
+        ],
+        "vendor": "f5",
+        "path": "f5.virtualServer"
+      },
+      {
+        "id": "pool",
+        "lines": [
+          "Pool app-pool",
+          "http monitor"
+        ],
+        "vendor": "f5",
+        "path": "f5.pool"
+      },
+      {
+        "id": "m_10_30_0_11",
+        "lines": [
+          "Member",
+          "10.30.0.11:8080"
+        ],
+        "vendor": "f5",
+        "path": "f5.pool.members[0]"
+      },
+      {
+        "id": "m_10_30_0_12",
+        "lines": [
+          "Member",
+          "10.30.0.12:8080"
+        ],
+        "vendor": "f5",
+        "path": "f5.pool.members[1]"
+      },
+      {
+        "id": "panorama",
+        "lines": [
+          "Panorama",
+          "10.99.0.5"
+        ],
+        "vendor": "paloalto",
+        "path": "addressing.panorama"
+      }
+    ],
+    "edges": [
+      {
+        "from": "z_dmz",
+        "to": "vip",
+        "lines": [
+          "dmz"
+        ],
+        "kind": "line",
+        "danger": false
+      },
+      {
+        "from": "vip",
+        "to": "pool",
+        "lines": [
+          "default pool"
+        ],
+        "kind": "solid",
+        "danger": false
+      },
+      {
+        "from": "pool",
+        "to": "m_10_30_0_11",
+        "lines": [],
+        "kind": "solid",
+        "danger": false
+      },
+      {
+        "from": "z_app",
+        "to": "m_10_30_0_11",
+        "lines": [
+          "app"
+        ],
+        "kind": "line",
+        "danger": false
+      },
+      {
+        "from": "pool",
+        "to": "m_10_30_0_12",
+        "lines": [],
+        "kind": "solid",
+        "danger": false
+      },
+      {
+        "from": "z_app",
+        "to": "m_10_30_0_12",
+        "lines": [
+          "app"
+        ],
+        "kind": "line",
+        "danger": false
+      },
+      {
+        "from": "panorama",
+        "to": "z_management",
+        "lines": [
+          "manages https ssh"
+        ],
+        "kind": "dotted",
+        "danger": false
+      }
+    ]
+  }
+}

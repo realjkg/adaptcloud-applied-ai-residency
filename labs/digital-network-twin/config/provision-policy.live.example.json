@@ -1,0 +1,21 @@
+{
+  "enabled": false,
+  "environment": "lab",
+  "allowedTenants": ["lab-tenant-001"],
+  "allowedVendors": ["cloudflare", "f5"],
+  "transport": "live",
+  "maxOperations": 10,
+  "allowDestroy": false,
+  "liveAuthorization": {
+    "adr": "docs/adr/0001-live-provisioning-authorization.md",
+    "acknowledgesUntested": false
+  },
+  "allowedHosts": {
+    "cloudflare": ["api.cloudflare.com"],
+    "f5": ["REPLACE-WITH-YOUR-LAB-BIGIP-HOSTNAME-OR-ADDRESS"]
+  },
+  "live": {
+    "cloudflare": { "zoneId": "REPLACE-WITH-32-CHARACTER-ZONE-ID-OF-A-ZONE-YOU-OWN" },
+    "f5": { "host": "REPLACE-WITH-YOUR-LAB-BIGIP-HOSTNAME-OR-ADDRESS" }
+  }
+}

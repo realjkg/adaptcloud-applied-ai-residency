@@ -1,0 +1,106 @@
+{
+  "requirementSetId": "SYNTH-ASBUILT-001",
+  "synthetic": true,
+  "description": "Synthetic customer as-built requirements. They use the customer's own ids and document references and mix automated, vendor-scoped, manual, and out-of-model requirements.",
+  "requirements": [
+    {
+      "id": "SYN-SEC-001", "title": "Management access is limited to named admin networks and uses encrypted protocols", "source": "Network Security Standard v1, 4.1", "kind": "automated",
+      "fact": "managementAccess",
+      "assert": [
+        { "field": "permittedSources", "op": "nonEmpty" },
+        { "field": "permittedSources", "op": "lacksAny", "value": ["any", "0.0.0.0/0"] },
+        { "field": "protocols", "op": "lacksAny", "value": ["http", "telnet", "snmp"] }
+      ]
+    },
+    {
+      "id": "SYN-SEC-002", "title": "Every firewall ends in an explicit deny-all rule", "source": "Network Security Standard v1, 4.2", "kind": "automated",
+      "fact": "defaultDeny",
+      "assert": [{ "field": "lastRuleIsDenyAll", "op": "eq", "value": true }]
+    },
+    {
+      "id": "SYN-SEC-003", "title": "No allow rule uses any as its source, destination, or service", "source": "Network Security Standard v1, 4.3", "kind": "automated",
+      "fact": "firewallRules",
+      "where": [{ "field": "action", "op": "eq", "value": "allow" }],
+      "assert": [
+        { "field": "source", "op": "notIn", "value": ["any"] },
+        { "field": "destination", "op": "notIn", "value": ["any"] },
+        { "field": "service", "op": "notIn", "value": ["any"] }
+      ]
+    },
+    {
+      "id": "SYN-SEC-004", "title": "Every firewall rule writes a log entry", "source": "Network Security Standard v1, 4.4", "kind": "automated",
+      "fact": "firewallRules",
+      "assert": [{ "field": "log", "op": "eq", "value": true }]
+    },
+    {
+      "id": "SYN-VPN-001", "title": "Site-to-site tunnels use IKEv2", "source": "Connectivity Design v2, 3.1", "kind": "automated",
+      "fact": "vpnTunnels",
+      "assert": [{ "field": "ikeVersion", "op": "eq", "value": 2 }]
+    },
+    {
+      "id": "SYN-VPN-002", "title": "Both ends of a tunnel agree on the IKE version", "source": "Connectivity Design v2, 3.2", "kind": "automated",
+      "fact": "vpnTunnels", "minimum": 2,
+      "agree": { "field": "ikeVersion" }
+    },
+    {
+      "id": "SYN-VPN-003", "title": "Tunnel pre-shared keys are held as secret-store references, never as literals", "source": "Connectivity Design v2, 3.4", "kind": "automated",
+      "fact": "vpnTunnels",
+      "assert": [{ "field": "authentication", "op": "eq", "value": "secret-reference" }]
+    },
+    {
+      "id": "SYN-TLS-001", "title": "Every TLS endpoint enforces TLS 1.2 or later", "source": "Network Security Standard v1, 5.1", "kind": "automated",
+      "fact": "tlsEndpoints",
+      "assert": [{ "field": "minVersion", "op": "in", "value": ["TLSv1.2", "TLSv1.3"] }]
+    },
+    {
+      "id": "SYN-TLS-002", "title": "Load balancer virtual servers enforce TLS 1.2 or later", "source": "Network Security Standard v1, 5.1", "kind": "automated",
+      "scope": { "vendors": ["f5"] },
+      "fact": "tlsEndpoints",
+      "assert": [{ "field": "minVersion", "op": "in", "value": ["TLSv1.2", "TLSv1.3"] }]
+    },
+    {
+      "id": "SYN-TLS-003", "title": "The edge validates the origin certificate", "source": "Network Security Standard v1, 5.3", "kind": "automated",
+      "fact": "tlsEndpoints",
+      "where": [{ "field": "role", "op": "eq", "value": "edge" }],
+      "assert": [{ "field": "verifiesOrigin", "op": "eq", "value": true }]
+    },
+    {
+      "id": "SYN-CERT-001", "title": "Certificates have at least 30 days remaining", "source": "Operations Standard v3, 2.2", "kind": "automated",
+      "fact": "certificates",
+      "assert": [{ "field": "daysRemaining", "op": "gte", "value": 30 }]
+    },
+    {
+      "id": "SYN-LB-001", "title": "Every pool has at least two members", "source": "Application Delivery Design v1, 2.1", "kind": "automated",
+      "fact": "loadBalancing",
+      "assert": [{ "field": "memberCount", "op": "gte", "value": 2 }]
+    },
+    {
+      "id": "SYN-LB-002", "title": "Every pool has an HTTP or HTTPS health monitor", "source": "Application Delivery Design v1, 2.3", "kind": "automated",
+      "fact": "loadBalancing",
+      "assert": [{ "field": "monitorType", "op": "in", "value": ["http", "https"] }]
+    },
+    {
+      "id": "SYN-EDGE-001", "title": "The public application is proxied, the WAF enforces, and the origin accepts only the edge", "source": "Edge Design v1, 1.2", "kind": "automated",
+      "fact": "edgeExposure",
+      "assert": [
+        { "field": "proxied", "op": "eq", "value": true },
+        { "field": "wafAction", "op": "eq", "value": "block" },
+        { "field": "originPulls", "op": "eq", "value": true }
+      ]
+    },
+    {
+      "id": "SYN-DOC-001", "title": "The as-built diagram has been reviewed and approved by the network lead", "source": "Handover Checklist, 7.1", "kind": "manual",
+      "evidence": "A dated approval reference for the current diagram version"
+    },
+    {
+      "id": "SYN-DOC-002", "title": "A configuration backup was restored successfully in the last quarter", "source": "Operations Standard v3, 6.4", "kind": "manual",
+      "evidence": "The restore test record and its date"
+    },
+    {
+      "id": "SYN-CORE-001", "title": "Core switches accept management over SSH only", "source": "Network Security Standard v1, 4.1", "kind": "automated",
+      "scope": { "vendors": ["cisco-ios"] },
+      "fact": "managementAccess",
+      "assert": [{ "field": "protocols", "op": "lacksAny", "value": ["telnet", "http"] }]
+    }
+  ]
+}

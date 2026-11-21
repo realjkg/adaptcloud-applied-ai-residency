@@ -1,0 +1,455 @@
+[
+  {
+    "order": 1,
+    "stage": "02",
+    "vendor": "paloalto",
+    "object": "management-access",
+    "name": "mgt",
+    "action": "create",
+    "attributes": {
+      "permittedSources": [
+        "10.99.0.0/24"
+      ],
+      "protocols": [
+        "https",
+        "ssh"
+      ]
+    }
+  },
+  {
+    "order": 2,
+    "stage": "03",
+    "vendor": "paloalto",
+    "object": "zone",
+    "name": "untrust",
+    "action": "create",
+    "attributes": {}
+  },
+  {
+    "order": 3,
+    "stage": "03",
+    "vendor": "paloalto",
+    "object": "zone",
+    "name": "dmz",
+    "action": "create",
+    "attributes": {}
+  },
+  {
+    "order": 4,
+    "stage": "03",
+    "vendor": "paloalto",
+    "object": "zone",
+    "name": "app",
+    "action": "create",
+    "attributes": {}
+  },
+  {
+    "order": 5,
+    "stage": "03",
+    "vendor": "paloalto",
+    "object": "zone",
+    "name": "management",
+    "action": "create",
+    "attributes": {}
+  },
+  {
+    "order": 6,
+    "stage": "03",
+    "vendor": "paloalto",
+    "object": "zone",
+    "name": "vpn-branch",
+    "action": "create",
+    "attributes": {}
+  },
+  {
+    "order": 7,
+    "stage": "03",
+    "vendor": "paloalto",
+    "object": "interface",
+    "name": "ethernet1/1",
+    "action": "create",
+    "attributes": {
+      "zone": "untrust",
+      "address": "198.51.100.2/24"
+    }
+  },
+  {
+    "order": 8,
+    "stage": "03",
+    "vendor": "paloalto",
+    "object": "interface",
+    "name": "ethernet1/2",
+    "action": "create",
+    "attributes": {
+      "zone": "dmz",
+      "address": "10.20.0.2/24"
+    }
+  },
+  {
+    "order": 9,
+    "stage": "03",
+    "vendor": "paloalto",
+    "object": "interface",
+    "name": "ethernet1/3",
+    "action": "create",
+    "attributes": {
+      "zone": "app",
+      "address": "10.30.0.1/24"
+    }
+  },
+  {
+    "order": 10,
+    "stage": "03",
+    "vendor": "paloalto",
+    "object": "interface",
+    "name": "ethernet1/4",
+    "action": "create",
+    "attributes": {
+      "zone": "management",
+      "address": "10.99.0.1/24",
+      "managementProfile": {
+        "services": [
+          "https",
+          "ssh"
+        ],
+        "permittedSources": [
+          "10.99.0.0/24"
+        ]
+      }
+    }
+  },
+  {
+    "order": 11,
+    "stage": "03",
+    "vendor": "paloalto",
+    "object": "interface",
+    "name": "tunnel.1",
+    "action": "create",
+    "attributes": {
+      "zone": "vpn-branch",
+      "address": "10.50.0.1/30"
+    }
+  },
+  {
+    "order": 12,
+    "stage": "03",
+    "vendor": "paloalto",
+    "object": "static-route",
+    "name": "0.0.0.0/0",
+    "action": "create",
+    "attributes": {
+      "nextHop": "198.51.100.1"
+    }
+  },
+  {
+    "order": 13,
+    "stage": "03",
+    "vendor": "paloalto",
+    "object": "static-route",
+    "name": "10.30.0.0/24",
+    "action": "create",
+    "attributes": {
+      "nextHop": "ethernet1/3"
+    }
+  },
+  {
+    "order": 14,
+    "stage": "04",
+    "vendor": "f5",
+    "object": "monitor",
+    "name": "app-pool-monitor",
+    "action": "create",
+    "attributes": {
+      "type": "http",
+      "send": "GET /health HTTP/1.1\r\nHost: app.lab.example\r\nConnection: close\r\n\r\n",
+      "receive": "200"
+    }
+  },
+  {
+    "order": 15,
+    "stage": "04",
+    "vendor": "f5",
+    "object": "pool",
+    "name": "app-pool",
+    "action": "create",
+    "attributes": {
+      "method": "round-robin"
+    }
+  },
+  {
+    "order": 16,
+    "stage": "04",
+    "vendor": "f5",
+    "object": "pool-member",
+    "name": "10.30.0.11:8080",
+    "action": "create",
+    "attributes": {
+      "pool": "app-pool"
+    }
+  },
+  {
+    "order": 17,
+    "stage": "04",
+    "vendor": "f5",
+    "object": "pool-member",
+    "name": "10.30.0.12:8080",
+    "action": "create",
+    "attributes": {
+      "pool": "app-pool"
+    }
+  },
+  {
+    "order": 18,
+    "stage": "05",
+    "vendor": "f5",
+    "object": "ssl-certificate",
+    "name": "app-cert",
+    "action": "create",
+    "attributes": {
+      "subject": "app.lab.example",
+      "notAfter": "2027-06-30",
+      "issuer": "public-ca"
+    }
+  },
+  {
+    "order": 19,
+    "stage": "06",
+    "vendor": "f5",
+    "object": "client-ssl-profile",
+    "name": "app-clientssl",
+    "action": "create",
+    "attributes": {
+      "certificate": "app-cert",
+      "minVersion": "TLSv1.2"
+    }
+  },
+  {
+    "order": 20,
+    "stage": "06",
+    "vendor": "f5",
+    "object": "virtual-server",
+    "name": "app-vs",
+    "action": "create",
+    "attributes": {
+      "destination": "10.20.0.100:443",
+      "pool": "app-pool",
+      "clientSslProfile": "app-clientssl",
+      "snat": "automap"
+    }
+  },
+  {
+    "order": 21,
+    "stage": "07",
+    "vendor": "paloalto",
+    "object": "address-object",
+    "name": "cloudflare-ranges",
+    "action": "create",
+    "attributes": {
+      "source": "published-list"
+    }
+  },
+  {
+    "order": 22,
+    "stage": "07",
+    "vendor": "paloalto",
+    "object": "nat-rule",
+    "name": "origin-to-vip",
+    "action": "create",
+    "attributes": {
+      "from": "untrust",
+      "original": "198.51.100.2:443",
+      "translated": "10.20.0.100:443"
+    }
+  },
+  {
+    "order": 23,
+    "stage": "07",
+    "vendor": "paloalto",
+    "object": "security-rule",
+    "name": "edge-https",
+    "action": "create",
+    "attributes": {
+      "position": 1,
+      "from": "untrust",
+      "to": "dmz",
+      "source": "cloudflare-ranges",
+      "destination": "198.51.100.2",
+      "service": "tcp/443",
+      "action": "allow",
+      "log": true
+    }
+  },
+  {
+    "order": 24,
+    "stage": "07",
+    "vendor": "paloalto",
+    "object": "security-rule",
+    "name": "branch-https",
+    "action": "create",
+    "attributes": {
+      "position": 2,
+      "from": "vpn-branch",
+      "to": "dmz",
+      "source": "10.40.0.0/24",
+      "destination": "10.20.0.100",
+      "service": "tcp/443",
+      "action": "allow",
+      "log": true
+    }
+  },
+  {
+    "order": 25,
+    "stage": "07",
+    "vendor": "paloalto",
+    "object": "security-rule",
+    "name": "f5-to-pool",
+    "action": "create",
+    "attributes": {
+      "position": 3,
+      "from": "dmz",
+      "to": "app",
+      "source": "10.20.0.10",
+      "destination": "10.30.0.0/24",
+      "service": "tcp/8080",
+      "action": "allow",
+      "log": true
+    }
+  },
+  {
+    "order": 26,
+    "stage": "07",
+    "vendor": "paloalto",
+    "object": "security-rule",
+    "name": "default-deny",
+    "action": "create",
+    "attributes": {
+      "position": 4,
+      "from": "any",
+      "to": "any",
+      "source": "any",
+      "destination": "any",
+      "service": "any",
+      "action": "deny",
+      "log": true
+    }
+  },
+  {
+    "order": 27,
+    "stage": "08",
+    "vendor": "cloudflare",
+    "object": "dns-record",
+    "name": "app.lab.example",
+    "action": "create",
+    "attributes": {
+      "type": "A",
+      "content": "198.51.100.2",
+      "proxied": true
+    }
+  },
+  {
+    "order": 28,
+    "stage": "08",
+    "vendor": "cloudflare",
+    "object": "zone-setting",
+    "name": "ssl",
+    "action": "create",
+    "attributes": {
+      "value": "strict"
+    }
+  },
+  {
+    "order": 29,
+    "stage": "09",
+    "vendor": "cloudflare",
+    "object": "managed-ruleset",
+    "name": "cloudflare-managed",
+    "action": "create",
+    "attributes": {
+      "action": "block"
+    }
+  },
+  {
+    "order": 30,
+    "stage": "09",
+    "vendor": "cloudflare",
+    "object": "authenticated-origin-pulls",
+    "name": "app.lab.example",
+    "action": "create",
+    "attributes": {
+      "enabled": true
+    }
+  },
+  {
+    "order": 31,
+    "stage": "10",
+    "vendor": "paloalto",
+    "object": "ipsec-tunnel",
+    "name": "tunnel.1",
+    "action": "create",
+    "attributes": {
+      "ikeVersion": 2,
+      "peer": "198.51.100.40",
+      "pskRef": "secret-store://lab/ipsec-branch"
+    }
+  },
+  {
+    "order": 32,
+    "stage": "10",
+    "vendor": "meraki",
+    "object": "non-meraki-vpn-peer",
+    "name": "dc-ngfw",
+    "action": "create",
+    "attributes": {
+      "publicIp": "198.51.100.2",
+      "ikeVersion": 2,
+      "localNetworks": [
+        "10.40.0.0/24"
+      ],
+      "remoteNetworks": [
+        "10.20.0.100/32"
+      ],
+      "pskRef": "secret-store://lab/ipsec-branch"
+    }
+  },
+  {
+    "order": 33,
+    "stage": "11",
+    "vendor": "meraki",
+    "object": "l3-firewall-rule",
+    "name": "rule-1",
+    "action": "create",
+    "attributes": {
+      "position": 1,
+      "policy": "allow",
+      "protocol": "tcp",
+      "destination": "10.20.0.100/32",
+      "port": "443"
+    }
+  },
+  {
+    "order": 34,
+    "stage": "11",
+    "vendor": "meraki",
+    "object": "l3-firewall-rule",
+    "name": "rule-2",
+    "action": "create",
+    "attributes": {
+      "position": 2,
+      "policy": "deny",
+      "protocol": "any",
+      "destination": "10.0.0.0/8",
+      "port": "any"
+    }
+  },
+  {
+    "order": 35,
+    "stage": "11",
+    "vendor": "paloalto",
+    "object": "static-route",
+    "name": "10.40.0.0/24",
+    "action": "create",
+    "attributes": {
+      "nextHop": "tunnel.1"
+    }
+  }
+]

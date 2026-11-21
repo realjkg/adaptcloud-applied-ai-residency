@@ -1,0 +1,282 @@
+{
+  "twinId": "SYNTH-TWIN-NET-001",
+  "referenceDate": "2026-11-18",
+  "hostname": "app.lab.example",
+  "addressing": {
+    "origin": "198.51.100.2",
+    "originGateway": "198.51.100.1",
+    "dmzSubnet": "10.20.0.0/24",
+    "f5Self": "10.20.0.10",
+    "vip": "10.20.0.100",
+    "appSubnet": "10.30.0.0/24",
+    "branchWan": "198.51.100.40",
+    "branchLan": "10.40.0.0/24",
+    "mgmtSubnet": "10.99.0.0/24",
+    "panorama": "10.99.0.5",
+    "tunnelSubnet": "10.50.0.0/30"
+  },
+  "management": {
+    "permittedSources": [
+      "10.99.0.0/24"
+    ],
+    "protocols": [
+      "https",
+      "ssh"
+    ]
+  },
+  "paloalto": {
+    "zones": [
+      "untrust",
+      "dmz",
+      "app",
+      "management",
+      "vpn-branch"
+    ],
+    "interfaces": [
+      {
+        "name": "ethernet1/1",
+        "zone": "untrust",
+        "address": "198.51.100.2/24"
+      },
+      {
+        "name": "ethernet1/2",
+        "zone": "dmz",
+        "address": "10.20.0.2/24"
+      },
+      {
+        "name": "ethernet1/3",
+        "zone": "app",
+        "address": "10.30.0.1/24"
+      },
+      {
+        "name": "ethernet1/4",
+        "zone": "management",
+        "address": "10.99.0.1/24",
+        "managementProfile": {
+          "services": [
+            "https",
+            "ssh"
+          ],
+          "permittedSources": [
+            "10.99.0.0/24"
+          ]
+        }
+      },
+      {
+        "name": "tunnel.1",
+        "zone": "vpn-branch",
+        "address": "10.50.0.1/30"
+      }
+    ],
+    "routes": [
+      {
+        "destination": "0.0.0.0/0",
+        "nextHop": "198.51.100.1"
+      },
+      {
+        "destination": "10.30.0.0/24",
+        "nextHop": "ethernet1/3"
+      },
+      {
+        "destination": "10.40.0.0/24",
+        "nextHop": "tunnel.1"
+      }
+    ],
+    "addressObjects": {
+      "cloudflare-ranges": {
+        "source": "published-list",
+        "refreshed": "2026-11-10"
+      }
+    },
+    "nat": [
+      {
+        "name": "origin-to-vip",
+        "from": "untrust",
+        "original": "198.51.100.2:443",
+        "translated": "10.20.0.100:443"
+      }
+    ],
+    "rules": [
+      {
+        "name": "edge-https",
+        "from": "untrust",
+        "to": "dmz",
+        "source": "cloudflare-ranges",
+        "destination": "198.51.100.2",
+        "service": "tcp/443",
+        "action": "allow",
+        "log": true,
+        "profile": "threat-default"
+      },
+      {
+        "name": "branch-https",
+        "from": "vpn-branch",
+        "to": "dmz",
+        "source": "10.40.0.0/24",
+        "destination": "10.20.0.100",
+        "service": "tcp/443",
+        "action": "allow",
+        "log": true,
+        "profile": "threat-default"
+      },
+      {
+        "name": "f5-to-pool",
+        "from": "dmz",
+        "to": "app",
+        "source": "10.20.0.10",
+        "destination": "10.30.0.0/24",
+        "service": "tcp/8080",
+        "action": "allow",
+        "log": true,
+        "profile": "threat-default"
+      },
+      {
+        "name": "branch-to-pool",
+        "from": "vpn-branch",
+        "to": "app",
+        "source": "10.40.0.0/24",
+        "destination": "10.30.0.0/24",
+        "service": "tcp/8080",
+        "action": "allow",
+        "log": true,
+        "profile": "threat-default"
+      },
+      {
+        "name": "default-deny",
+        "from": "any",
+        "to": "any",
+        "source": "any",
+        "destination": "any",
+        "service": "any",
+        "action": "deny",
+        "log": true
+      }
+    ],
+    "ipsec": {
+      "ikeVersion": 2,
+      "peer": "198.51.100.40",
+      "tunnelInterface": "tunnel.1",
+      "pskRef": "secret-store://lab/ipsec-branch"
+    }
+  },
+  "f5": {
+    "pool": {
+      "name": "app-pool",
+      "method": "round-robin",
+      "members": [
+        {
+          "address": "10.30.0.11",
+          "port": 8080
+        },
+        {
+          "address": "10.30.0.12",
+          "port": 8080
+        }
+      ],
+      "monitor": {
+        "type": "http",
+        "send": "GET /health HTTP/1.1\r\nHost: app.lab.example\r\nConnection: close\r\n\r\n",
+        "receive": "200"
+      }
+    },
+    "clientSsl": {
+      "name": "app-clientssl",
+      "certificate": "app-cert",
+      "minVersion": "TLSv1.2"
+    },
+    "virtualServer": {
+      "name": "app-vs",
+      "destination": "10.20.0.100:443",
+      "protocol": "tcp",
+      "pool": "app-pool",
+      "clientSslProfile": "app-clientssl",
+      "snat": "automap"
+    }
+  },
+  "tls": {
+    "certificate": {
+      "name": "app-cert",
+      "subject": "app.lab.example",
+      "notAfter": "2027-06-30",
+      "issuer": "public-ca",
+      "chainValidated": true
+    }
+  },
+  "cloudflare": {
+    "dns": {
+      "name": "app.lab.example",
+      "type": "A",
+      "content": "198.51.100.2",
+      "proxied": true
+    },
+    "ssl": {
+      "mode": "strict"
+    },
+    "authenticatedOriginPulls": true,
+    "waf": {
+      "managedRuleset": true,
+      "action": "block",
+      "tunedAt": "2026-11-12"
+    }
+  },
+  "meraki": {
+    "nonMerakiPeer": {
+      "name": "dc-ngfw",
+      "publicIp": "198.51.100.2",
+      "ikeVersion": 2,
+      "localNetworks": [
+        "10.40.0.0/24"
+      ],
+      "remoteNetworks": [
+        "10.20.0.100/32"
+      ],
+      "pskRef": "secret-store://lab/ipsec-branch"
+    },
+    "firewall": [
+      {
+        "policy": "allow",
+        "protocol": "tcp",
+        "destination": "10.20.0.100/32",
+        "port": "443"
+      },
+      {
+        "policy": "deny",
+        "protocol": "any",
+        "destination": "10.0.0.0/8",
+        "port": "any"
+      }
+    ]
+  },
+  "validation": {
+    "results": [
+      {
+        "id": "public-path",
+        "result": "pass"
+      },
+      {
+        "id": "origin-lock",
+        "result": "pass"
+      },
+      {
+        "id": "branch-path",
+        "result": "pass"
+      },
+      {
+        "id": "pool-isolation",
+        "result": "pass"
+      },
+      {
+        "id": "management-isolation",
+        "result": "pass"
+      },
+      {
+        "id": "default-deny",
+        "result": "pass"
+      },
+      {
+        "id": "failure-drill",
+        "result": "pass"
+      }
+    ]
+  }
+}

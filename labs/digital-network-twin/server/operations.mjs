@@ -1,0 +1,280 @@
+// Target-based write workflow for Palo Alto and Meraki (live or simulated). Authorization is per execution, not a switch:
+// enabling an adapter authorizes nothing.
+//
+//   request   an operator names an allowlisted target id, a change type, and the change's fields. The server resolves the
+//             target, reads current state, and builds a dry-run diff. The plan has an id, an expiry, and a digest over the
+//             exact target, change type, change, baseline, proposed state, and commit scope.
+//   approve   a different approver sees the diff and commit scope and approves that digest, before it expires.
+//   execute   immediately before writing, the server re-checks the operator's role, the target and change type still being
+//             allowed, the approval, the kill switch, and drift. A changed baseline marks the plan stale and requires a new
+//             plan and approval. Executing twice returns the first outcome and never writes twice.
+//   rollback  a new request, with its own plan and approval, built from the original. It is refused if the object or rule
+//             it would remove is not the one this system created, so someone else's later edit is never overwritten.
+//
+// Operations are written to disk after each step. An operation found "executing" after a restart is marked uncertain,
+// not re-run.
+
+import { randomBytes } from "node:crypto";
+import { readFile, rename, writeFile } from "node:fs/promises";
+import { digest, markFor, OPID, same } from "./adapters/common.mjs";
+import { createCommitHooks } from "./commit-hooks.mjs";
+import { can } from "./roles.mjs";
+import { bindTarget, denyAllPolicy, recheckBoundTarget, targetFingerprint, TargetError } from "./target-resolution.mjs";
+
+const deny = (code, extra = {}) => ({ ok: false, code, ...extra });
+export const PLAN_TTL_MS = 30 * 60_000;
+const TERMINAL = new Set(["completed", "failed", "uncertain", "rejected", "stale", "expired"]);
+
+export function createOperations({ resolver, policy = denyAllPolicy, adapters, adapterFor = (t) => adapters?.[t.vendor], audit, now = () => new Date(), killSwitch = () => false, planTtlMs = PLAN_TTL_MS, liveAuthorized = () => true, transportKind, file = null, journal = null }) {
+  const ops = new Map();
+  const inflight = new Map();
+  let saving = Promise.resolve();
+  const save = () => {
+    if (!file) return;
+    saving = saving.then(async () => { await writeFile(`${file}.tmp`, JSON.stringify([...ops.values()])); await rename(`${file}.tmp`, file); }).catch(() => {});
+    return saving;
+  };
+  const ready = (async () => {
+    if (!file) return;
+    try {
+      for (const op of JSON.parse(await readFile(file, "utf8"))) {
+        if (op.status === "executing") { op.status = "uncertain"; op.result = { outcome: "uncertain", reason: "service_restarted_during_write", ...(op.vendor === "paloalto" ? { candidateMayExist: true } : {}) }; }
+        ops.set(op.id, op);
+      }
+    } catch { /* first run */ }
+  })();
+
+  const view = (op) => ({
+    id: op.id, targetId: op.targetId, vendor: op.vendor, changeType: op.changeType, params: op.params, status: op.status,
+    requester: op.requester.name, requestedAt: op.requestedAt, expiresAt: op.expiresAt, planDigest: op.planDigest,
+    targetFingerprint: op.binding.fingerprint, contextId: op.contextId, preview: op.plan.preview ?? null, diff: op.plan.diff, blockers: op.plan.blockers, commitScope: op.plan.commitScope, requiresExclusiveWindow: op.plan.requiresExclusiveWindow,
+    approver: op.approval?.approverName ?? null, exclusiveWindowConfirmed: op.approval?.exclusiveWindow === true,
+    result: op.result ?? null, rollbackOf: op.rollbackOf ?? null, transport: transportKind,
+    // Where a person has to look: a commit may have been accepted but is not recorded. Never a retry.
+    manualReview: op.status === "uncertain" && ["commit_job_not_recorded", "commit_intent_already_recorded", "commit_response_lost", "service_restarted_during_write"].includes(op.result?.reason) ? { required: true, jobId: op.jobId ?? op.result?.jobId ?? null, source: op.jobId || op.result?.jobId ? "audit record" : null } : null
+  });
+
+  // Everything a vendor client needs comes from the resolver. One error for every reason, so a caller cannot probe the inventory.
+  const adapterAndDef = (target, changeType) => {
+    const adapter = adapterFor(target);
+    const def = adapter?.changeTypes?.[changeType];
+    return def ? { adapter, def } : null;
+  };
+  const codeOf = (error) => (error instanceof TargetError ? error.code.toLowerCase() : "target_not_available");
+  const visible = (user, op) => { try { const t = resolver.resolve(op.targetId, op.changeType); return op.contextId === user.labId && policy.allows({ principalId: user.subject, contextId: user.labId, alias: op.targetId, capability: op.changeType, target: t }); } catch { return false; } };
+
+  async function createPlan(user, { targetId, changeType, params, rollbackOf = null, before }) {
+    let bound;
+    try { bound = bindTarget(resolver, policy, { principalId: user.subject, contextId: user.labId, alias: targetId, capability: changeType }); } catch (error) { return deny(codeOf(error)); }
+    const ad = adapterAndDef(bound.target, changeType);
+    if (!ad) return deny("target_not_available");
+    const r = { target: bound.target, adapter: ad.adapter, def: ad.def };
+    if (r.def.rollbackOnly && !rollbackOf) return deny("rollback_only");
+    if (typeof params !== "object" || params === null || Array.isArray(params)) return deny("params_invalid");
+    const problems = r.def.validate(params);
+    if (problems.length) return deny("params_invalid", { detail: problems.join("; ") });
+    const id = `OP-${randomBytes(5).toString("hex").toUpperCase()}`;
+    try { await r.adapter.verifyScope?.(r.target); } catch (error) { await audit.record({ event: "operation.refused", actor: user.subject, target: targetId, reason: "scope_mismatch" }); return deny("scope_mismatch", { detail: String(error?.code ?? "").slice(0, 60) }); }
+    let plan;
+    try { plan = await r.adapter.plan({ changeType, params, opId: id, target: r.target }); } catch (error) { return deny("plan_failed", { detail: String(error?.code ?? "read_failed").slice(0, 60) }); }
+    if (plan.blockers.length) { await audit.record({ event: "operation.refused", actor: user.subject, target: targetId, changeType, blockers: plan.blockers.join(",") }); return deny("blocked", { blockers: plan.blockers }); }
+    const requestedAt = now();
+    const op = {
+      id, targetId, vendor: r.target.vendor, changeType, params, requester: { subject: user.subject, name: user.name }, requestedAt: requestedAt.toISOString(),
+      expiresAt: new Date(requestedAt.getTime() + planTtlMs).toISOString(), status: "pending_approval", plan, rollbackOf, binding: bound.binding, contextId: user.labId, previousValue: plan.previousValue ?? before,
+      baselineDigest: digest(plan.baseline)
+    };
+    op.planDigest = digest({ targetId, fingerprint: bound.binding.fingerprint, vendor: op.vendor, changeType, params, baseline: op.baselineDigest, proposed: digest(plan.proposed), commitScope: plan.commitScope ?? null, exclusive: plan.requiresExclusiveWindow });
+    ops.set(id, op);
+    await save();
+    await audit.record({ event: "operation.requested", operation: id, actor: user.subject, target: targetId, changeType, digest: op.planDigest, ...(rollbackOf ? { rollbackOf } : {}) });
+    return { ok: true, operation: view(op) };
+  }
+
+  return {
+    ready,
+    /** Targets this principal may use, with no host, scope, or credential name. */
+    targets: (user) => resolver.aliases().flatMap((alias) => {
+      const t0 = resolver.inspect(alias);
+      if (!t0 || t0.mode !== resolver.mode) return [];
+      const types = [...t0.capabilities].map((c) => { const d = adapterFor(t0)?.changeTypes?.[c]; return { id: c, label: d?.label ?? c, rollbackOnly: d?.rollbackOnly === true, fields: d?.fields ?? [] }; }).filter((c) => !c.rollbackOnly && policy.allows({ principalId: user.subject, contextId: user.labId, alias, capability: c.id, target: t0 }));
+      return types.length ? [{ id: alias, label: t0.label, vendor: t0.vendor, environment: t0.environment ?? "lab", disposable: t0.disposable === true, changeTypes: types }] : [];
+    }),
+
+    async request(user, body) {
+      await ready;
+      if (!can(user.roles, "operation:request")) return deny("forbidden");
+      if (killSwitch()) return deny("kill_switch_engaged");
+      // Only these three fields are read. Any URL, path, or command in the body is ignored, not honored.
+      return createPlan(user, { targetId: body?.targetId, changeType: body?.changeType, params: body?.params });
+    },
+
+    async decide(user, id, { decision, planDigest, exclusiveWindow } = {}) {
+      await ready;
+      if (!can(user.roles, "operation:approve")) return deny("forbidden");
+      const op = ops.get(id);
+      if (!op) return deny("not_found");
+      if (!visible(user, op)) return deny("not_found");
+      if (op.status !== "pending_approval") return deny("not_pending");
+      if (op.requester.subject === user.subject) { await audit.record({ event: "operation.self_approval_refused", operation: id, actor: user.subject }); return deny("self_approval"); }
+      if (decision === "reject") { op.status = "rejected"; await save(); await audit.record({ event: "operation.rejected", operation: id, actor: user.subject }); return { ok: true, operation: view(op) }; }
+      if (decision !== "approve") return deny("decision_invalid");
+      if (now() >= new Date(op.expiresAt)) { op.status = "expired"; await save(); return deny("plan_expired"); }
+      if (planDigest !== op.planDigest) return deny("plan_digest_mismatch");
+      if (op.plan.requiresExclusiveWindow && exclusiveWindow !== true) return deny("exclusive_window_confirmation_required");
+      op.approval = { approver: user.subject, approverName: user.name, at: now().toISOString(), planDigest, exclusiveWindow: exclusiveWindow === true };
+      op.status = "approved";
+      await save();
+      await audit.record({ event: "operation.approved", operation: id, actor: user.subject, digest: planDigest, exclusiveWindow: exclusiveWindow === true });
+      return { ok: true, operation: view(op) };
+    },
+
+    /** Idempotent: a repeat, or a concurrent call, returns the existing operation and never writes again. */
+    async execute(user, id) {
+      await ready;
+      const op = ops.get(id);
+      if (!op || !visible(user, op)) return deny("not_found");
+      if (!can(user.roles, "operation:execute")) return deny("forbidden");
+      if (TERMINAL.has(op.status) || op.status === "executing") return { ok: op.status === "completed", code: op.status === "completed" ? undefined : "already_" + op.status, operation: view(op), existing: true };
+      if (inflight.has(id)) return inflight.get(id);
+      const run = (async () => {
+        const fail = async (code, status) => { if (status) { op.status = status; await save(); } await audit.record({ event: "operation.execute_refused", operation: id, actor: user.subject, reason: code }); return deny(code, { operation: view(op) }); };
+        if (op.status !== "approved") return fail("not_approved");
+        if (killSwitch()) return fail("kill_switch_engaged");
+        // Re-authorize now, not at approval time: the alias must still resolve to the approved scope, and this principal must still have access.
+        let target;
+        try { target = recheckBoundTarget(resolver, policy, { principalId: user.subject, contextId: op.contextId, binding: op.binding }); } catch (error) {
+          if (error instanceof TargetError && error.code === "APPROVED_TARGET_CHANGED") { await audit.record({ event: "operation.target_changed", operation: id, actor: user.subject }); return fail("approved_target_changed", "stale"); }
+          return fail(codeOf(error));
+        }
+        const ad = adapterAndDef(target, op.changeType);
+        if (!ad) return fail("target_not_available");
+        const r = { target, adapter: ad.adapter };
+        if (transportKind === "live" && !liveAuthorized()) return fail("live_not_authorized");
+        if (target.environment !== "lab" && transportKind === "live") return fail("environment_not_lab");
+        try { await r.adapter.verifyScope?.(target); } catch { return fail("scope_mismatch"); }
+        if (op.approval.planDigest !== op.planDigest || op.approval.approver === op.requester.subject) return fail("approval_invalid");
+        if (now() >= new Date(op.expiresAt)) return fail("approval_expired", "expired");
+        if (op.plan.requiresExclusiveWindow && op.approval.exclusiveWindow !== true) return fail("exclusive_window_not_confirmed");
+        let current;
+        try { current = await r.adapter.readState({ changeType: op.changeType, params: op.params, target }); } catch { return fail("baseline_unreadable"); }
+        if (digest(current) !== op.baselineDigest) { await audit.record({ event: "operation.drift", operation: id, actor: user.subject }); return fail("drift_detected_new_plan_required", "stale"); }
+
+        op.status = "executing";
+        op.executedBy = user.subject;
+        await save();
+        await audit.record({ event: "operation.executing", operation: id, actor: user.subject, digest: op.planDigest });
+        // One set of hooks per execution: intent, then job id, in that order and at most once.
+        const hooks = journal ? createCommitHooks({ journal, id, targetFingerprint: op.binding.fingerprint, planDigest: op.planDigest }) : null;
+        let result;
+        try { result = await r.adapter.execute(op.plan, { params: op.params, changeType: op.changeType, target: r.target, recordCommitIntent: hooks ? () => hooks.beforeCommit() : undefined, onJobQueued: async (jobId) => {
+          // The job id must be durable before anything relies on it. If the journal cannot save it, say so and let the
+          // adapter stop: the commit was accepted, so the outcome is uncertain and nothing may be sent again.
+          op.jobId = jobId;
+          let failure = null;
+          if (hooks) { try { await hooks.onJobQueued(jobId); } catch (error) { failure = error; } }
+          await save();
+          await audit.record({ event: failure ? "operation.commit_queued_unrecorded" : "operation.commit_queued", operation: id, actor: user.subject, job: jobId });
+          if (failure) throw failure;
+        } }); } catch { result = { outcome: "uncertain", reason: "executor_error" }; }
+        op.result = op.vendor === "paloalto" && result.outcome !== "verified" ? { candidateMayExist: true, ...result } : result;
+        op.status = result.outcome === "verified" ? "completed" : result.outcome === "failed" ? "failed" : "uncertain";
+        await save();
+        await audit.record({ event: "operation.executed", operation: id, actor: user.subject, outcome: op.status, ...(result.reason ? { reason: result.reason } : {}), ...(result.stage ? { stage: result.stage } : {}), ...(result.candidateLeftInPlace ? { candidateLeftInPlace: true } : {}) });
+        return { ok: op.status === "completed", operation: view(op) };
+      })();
+      inflight.set(id, run);
+      try { return await run; } finally { inflight.delete(id); }
+    },
+
+    /**
+     * Read-only preflight of a registered target: appliance identity and the read shapes planning relies on. It never
+     * writes, never commits, and never authorizes a write.
+     */
+    async preflight(user, alias) {
+      await ready;
+      const t = resolver.inspect(alias);
+      if (!t || t.mode !== resolver.mode) return deny("target_not_available");
+      const cap = [...t.capabilities][0];
+      if (!policy.allows({ principalId: user.subject, contextId: user.labId, alias, capability: cap, target: t })) return deny("target_not_available");
+      const ad = adapterAndDef(t, cap);
+      if (!ad?.adapter.preflight) return deny("preflight_unsupported");
+      let out;
+      try { out = await ad.adapter.preflight(t); } catch { out = { checks: [{ name: "preflight ran", pass: false, detail: "executor_error" }], notExercised: [] }; }
+      return { ok: true, alias, fingerprint: targetFingerprint(alias, cap, t), simulated: out.simulated === true, checks: out.checks, notExercised: out.notExercised, passed: out.checks.every((c) => c.pass) };
+    },
+
+    /** The current fingerprint of an alias this principal may use. No vendor call. */
+    async preflightKey(user, alias) {
+      const t = resolver.inspect(alias);
+      if (!t || t.mode !== resolver.mode) return null;
+      const cap = [...t.capabilities][0];
+      if (!policy.allows({ principalId: user.subject, contextId: user.labId, alias, capability: cap, target: t })) return null;
+      return { fingerprint: targetFingerprint(alias, cap, t) };
+    },
+
+    /** The approved round trip for one target: a verified create, and a freshly planned, separately approved destroy of it. */
+    roundTrip(user, alias) {
+      const t = resolver.inspect(alias);
+      if (!t) return { state: "not_started", createId: null, destroyId: null };
+      // An operation counts only if the alias still resolves to the scope it was planned against.
+      const mine = [...ops.values()].filter((op) => op.targetId === alias && visible(user, op) && op.binding.fingerprint === targetFingerprint(alias, op.changeType, t));
+      const created = mine.find((op) => op.status === "completed" && /\.(create|add)$/.test(op.changeType) && !op.rollbackOf && op.result?.outcome === "verified");
+      const destroyed = created && mine.find((op) => op.status === "completed" && op.rollbackOf === created.id && op.result?.outcome === "verified");
+      return { state: !created ? "not_started" : !destroyed ? "create_verified_destroy_pending" : "verified", createId: created?.id ?? null, destroyId: destroyed?.id ?? null };
+    },
+
+    /**
+     * Settles an uncertain Palo Alto commit from the durable journal, without resubmitting anything. The journal says
+     * whether a commit was ever about to be submitted and whether a job id was received. Read-only on the vendor.
+     */
+    async reconcile(user, id) {
+      await ready;
+      const op = ops.get(id);
+      if (!op || !visible(user, op)) return deny("not_found");
+      if (!can(user.roles, "operation:execute")) return deny("forbidden");
+      if (op.status !== "uncertain") return deny("not_uncertain");
+      if (!journal) return deny("no_commit_journal");
+      let rec;
+      try { rec = await journal.recover({ id, targetFingerprint: op.binding.fingerprint, planDigest: op.planDigest }); } catch (error) { return deny(String(error.message).replace(/[^a-z_]/g, "").slice(0, 40)); }
+      await audit.record({ event: "operation.reconcile", operation: id, actor: user.subject, journal: rec.state });
+      // No intent means the journaled path never reached commit submission. It does not mean nothing changed: the candidate
+      // edit happens earlier and may still be staged on the firewall.
+      if (rec.state === "no_intent") return deny("no_commit_was_submitted", { note: op.vendor === "paloalto" ? "candidate_edit_may_be_staged" : undefined, operation: view(op) });
+      if (rec.state === "submission_uncertain") return deny("submission_uncertain_manual_review", { operation: view(op) });
+      // Same re-authorization as execution: the alias must still resolve to the approved scope and the principal must still have access.
+      let target;
+      try { target = recheckBoundTarget(resolver, policy, { principalId: user.subject, contextId: op.contextId, binding: op.binding }); } catch (error) { return deny(codeOf(error)); }
+      const ad = adapterAndDef(target, op.changeType);
+      if (!ad?.adapter.finishFromJob) return deny("target_not_available");
+      try { await ad.adapter.verifyScope?.(target); } catch { return deny("scope_mismatch"); }
+      let result;
+      try { result = await ad.adapter.finishFromJob(op.plan, { params: op.params, changeType: op.changeType, target, jobId: rec.jobId }); } catch { result = { outcome: "uncertain", reason: "reconcile_failed" }; }
+      op.result = { ...result, reconciled: true };
+      op.status = result.outcome === "verified" ? "completed" : result.outcome === "failed" ? "failed" : "uncertain";
+      await save();
+      await audit.record({ event: "operation.reconciled", operation: id, actor: user.subject, outcome: op.status, ...(result.reason ? { reason: result.reason } : {}) });
+      return { ok: op.status === "completed", operation: view(op) };
+    },
+
+    /** A rollback is a new change: its own plan, its own approval. It is refused if the target no longer holds what this system created. */
+    async rollback(user, id) {
+      await ready;
+      if (!can(user.roles, "operation:request")) return deny("forbidden");
+      const op = ops.get(id);
+      if (!op || !visible(user, op)) return deny("not_found");
+      if (!["completed", "uncertain"].includes(op.status)) return deny("nothing_to_roll_back");
+      let t;
+      try { t = resolver.resolve(op.targetId, op.changeType); } catch (error) { return deny(codeOf(error)); }
+      const r = { def: adapterAndDef(t, op.changeType)?.def };
+      if (!r.def) return deny("target_not_available");
+      const inverse = r.def.inverse?.(op.params, { opId: op.id, before: op.previousValue, created: op.plan.proposed });
+      if (!inverse) return deny("no_rollback_for_this_change");
+      return createPlan(user, { targetId: op.targetId, changeType: inverse.changeType, params: inverse.params, rollbackOf: op.id });
+    },
+
+    get: (user, id) => (ops.has(id) && visible(user, ops.get(id)) ? view(ops.get(id)) : null),
+    list: (user) => [...ops.values()].filter((op) => visible(user, op)).map(view).sort((a, b) => b.requestedAt.localeCompare(a.requestedAt)),
+    markFor, OPID, same
+  };
+}

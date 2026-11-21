@@ -28,6 +28,10 @@ This repository is the Adapt Cloud Applied AI Engineer Residency. It ships three
 
 Run them without Claude through the `skills:*` npm scripts; `npm run skills:check` verifies the set itself. See `.claude/skills/README.md`.
 
+## Plain language
+
+Write for a reader who is not an engineer on this code. Say what a thing does or what goes wrong, not what it is called. Avoid jargon and coined terms. If a technical term cannot be avoided, explain it in plain words the first time it appears. For example, say "bad input crashed the code instead of being rejected" rather than "robustness bug". Apply this to chat replies, commit messages, pull request descriptions, and documentation.
+
 ## Definition of done
 
 A change is done only when it is understandable, tested, observable, cost-aware, secure by default, documented, and reversible.

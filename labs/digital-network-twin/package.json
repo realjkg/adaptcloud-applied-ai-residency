@@ -1,0 +1,31 @@
+{
+  "name": "digital-network-twin-lab",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Learn a multi-vendor network path (Cisco Meraki, Cloudflare, Palo Alto Networks, F5) by building it as an ordered, verifiable digital twin.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "plan": "node tools/twin-sequence.mjs plan",
+    "check": "node tools/twin-sequence.mjs check",
+    "verify": "node tools/twin-sequence.mjs verify",
+    "health": "node tools/health-agent.mjs",
+    "test": "node --test test/twin-sequence.test.mjs test/health.test.mjs test/render.test.mjs test/provision.test.mjs test/live.test.mjs test/rto-wifi.test.mjs test/demo.test.mjs test/asbuilt.test.mjs test/viewer.test.mjs test/collector.test.mjs test/control-plane.test.mjs test/operations.test.mjs test/live-writers.test.mjs test/learner-isolation.test.mjs test/target-resolution.test.mjs test/journal-volume-check.test.mjs test/readiness.test.mjs test/learner-e2e.test.mjs test/browser-gate.test.mjs test/cloudflare-edge.test.mjs test/maintenance.test.mjs test/tasks.test.mjs",
+    "topology": "node tools/render-topology.mjs",
+    "render:iac": "node tools/render-iac.mjs --write",
+    "roundtrip": "node tools/provision-cli.mjs roundtrip",
+    "provision": "node tools/provision-cli.mjs",
+    "rto": "node tools/rto-wifi.mjs",
+    "demo:check": "node tools/demo-check.mjs",
+    "snapshot": "node tools/snapshot.mjs --all",
+    "drawio": "node tools/export-drawio.mjs",
+    "viewer": "node viewer/serve.mjs",
+    "control": "node server/main.mjs",
+    "control:learner": "node server/learner-deployed.mjs",
+    "control:learner:local": "node server/learner.mjs",
+    "journal:volume-check": "node tools/journal-volume-check.mjs",
+    "asbuilt": "node tools/asbuilt.mjs"
+  }
+}
